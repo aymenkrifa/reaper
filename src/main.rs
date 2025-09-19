@@ -628,6 +628,12 @@ impl App {
                 (_, KeyCode::Backspace) if !self.search_query.is_empty() => {
                     self.search_query.pop();
                     self.apply_filter_and_sort();
+                    self.selected_index = 0;
+                    self.list_state.select(if self.filtered_processes.is_empty() {
+                        None
+                    } else {
+                        Some(0)
+                    });
                 }
                 _ => {}
             },
@@ -650,9 +656,23 @@ impl App {
                 (_, KeyCode::Enter) => self.apply_search(),
                 (_, KeyCode::Backspace) => {
                     self.search_query.pop();
+                    self.apply_filter_and_sort();
+                    self.selected_index = 0;
+                    self.list_state.select(if self.filtered_processes.is_empty() {
+                        None
+                    } else {
+                        Some(0)
+                    });
                 }
                 (_, KeyCode::Char(c)) => {
                     self.search_query.push(c);
+                    self.apply_filter_and_sort();
+                    self.selected_index = 0;
+                    self.list_state.select(if self.filtered_processes.is_empty() {
+                        None
+                    } else {
+                        Some(0)
+                    });
                 }
                 _ => {}
             },
@@ -694,6 +714,14 @@ impl App {
 
     fn exit_search_mode(&mut self) {
         self.mode = AppMode::ProcessList;
+        self.search_query.clear();
+        self.apply_filter_and_sort();
+        self.selected_index = 0;
+        self.list_state.select(if self.filtered_processes.is_empty() {
+            None
+        } else {
+            Some(0)
+        });
     }
 
     fn apply_search(&mut self) {
