@@ -35,8 +35,6 @@ impl Colors {
     const TEXT_TERTIARY: Color = Color::Rgb(120, 120, 120); // Darker gray
     const TEXT_MUTED: Color = Color::Rgb(80, 80, 80); // Very dark gray
     const SUCCESS: Color = Color::Rgb(46, 204, 113); // Green
-    const WARNING: Color = Color::Rgb(241, 196, 15); // Yellow
-    const ERROR: Color = Color::Rgb(231, 76, 60); // Red
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,7 +77,6 @@ pub struct App {
     sort_by: SortBy,
     sort_ascending: bool,
     loading_animation_frame: usize,
-    just_exited_search: bool,
 }
 
 impl Default for App {
@@ -101,7 +98,6 @@ impl Default for App {
             sort_by: SortBy::Port,
             sort_ascending: false, // Default to descending for better UX
             loading_animation_frame: 0,
-            just_exited_search: false,
         }
     }
 }
@@ -118,6 +114,13 @@ impl App {
             Ok(processes) => {
                 self.processes = processes;
                 self.apply_filter_and_sort();
+                
+                // If we have an active search but no filtered results, clear the search
+                if !self.search_query.is_empty() && self.filtered_processes.is_empty() {
+                    self.search_query.clear();
+                    self.apply_filter_and_sort();
+                }
+                
                 self.error_message = None;
                 self.status_message = None;
                 if self.selected_index >= self.filtered_processes.len() {
@@ -245,6 +248,19 @@ impl App {
             frame.render_widget(
                 Paragraph::new(format!("{} {}\n\nPlease wait...", loading_spinner, text))
                     .style(Style::default().fg(Colors::TEXT_SECONDARY))
+                    .centered(),
+                chunks[1],
+            );
+            return;
+        }
+
+        // Show message when no processes are running
+        if self.processes.is_empty() {
+            let text = "🌿 No processes are currently listening on any ports\n\nEverything is quiet and peaceful!\n\nPress 'r' to refresh or 'q' to quit.";
+            frame.render_widget(
+                Paragraph::new(text)
+                    .style(Style::default().fg(Colors::TEXT_SECONDARY))
+                    .alignment(Alignment::Center)
                     .centered(),
                 chunks[1],
             );
@@ -614,10 +630,7 @@ impl App {
         match self.mode {
             AppMode::ProcessList => match (key.modifiers, key.code) {
                 (_, KeyCode::Esc) => {
-                    if self.just_exited_search {
-                        // Ignore Esc if we just exited search mode
-                        self.just_exited_search = false;
-                    } else if !self.search_query.is_empty() {
+                    if !self.search_query.is_empty() {
                         // Clear search if there's an active search
                         self.search_query.clear();
                         self.apply_filter_and_sort();
