@@ -1,11 +1,10 @@
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
-    DefaultTerminal, Frame,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Style, Stylize},
-    text::Line,
-    widgets::{Block, Cell, Clear, Paragraph, Row, Table, TableState},
+    widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
+    DefaultTerminal, Frame,
 };
 
 mod lsof;
@@ -32,13 +31,14 @@ pub struct App {
     status_message: Option<String>,
     mode: AppMode,
     selected_index: usize,
-    table_state: TableState,
+    list_state: ListState,
+    confirm_button_selected: bool,
 }
 
 impl Default for App {
     fn default() -> Self {
-        let mut table_state = TableState::default();
-        table_state.select(Some(0));
+        let mut list_state = ListState::default();
+        list_state.select(Some(0));
 
         Self {
             running: false,
@@ -47,7 +47,8 @@ impl Default for App {
             status_message: None,
             mode: AppMode::ProcessList,
             selected_index: 0,
-            table_state,
+            list_state,
+            confirm_button_selected: true,
         }
     }
 }
@@ -68,7 +69,7 @@ impl App {
                 if self.selected_index >= self.processes.len() {
                     self.selected_index = 0;
                 }
-                self.table_state.select(if self.processes.is_empty() {
+                self.list_state.select(if self.processes.is_empty() {
                     None
                 } else {
                     Some(self.selected_index)
@@ -87,15 +88,12 @@ impl App {
         let refresh_interval = Duration::from_secs(1);
         let mut last_refresh = Instant::now();
         while self.running {
-            // Poll for events with a timeout
             let timeout = refresh_interval
                 .checked_sub(last_refresh.elapsed())
                 .unwrap_or(Duration::from_secs(0));
             if crossterm::event::poll(timeout)? {
-                // There is an event (likely a key event)
                 self.handle_crossterm_events()?;
             }
-            // Check if it's time to refresh
             if last_refresh.elapsed() >= refresh_interval {
                 self.refresh_processes();
                 last_refresh = Instant::now();
@@ -106,107 +104,133 @@ impl App {
     }
 
     fn render(&mut self, frame: &mut Frame) {
-        let title = Line::from("Reaper - Process Monitor")
-            .bold()
-            .blue()
-            .centered();
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(4), Constraint::Min(0)])
+            .split(frame.area());
+
+        self.render_header(frame, chunks[0]);
 
         if let Some(error) = &self.error_message {
             let text = format!("Error: {}\n\nPress 'r' to retry, 'q' to quit.", error);
             frame.render_widget(
-                Paragraph::new(text)
-                    .block(Block::bordered().title(title))
-                    .centered(),
-                frame.area(),
+                Paragraph::new(text).block(Block::bordered()).centered(),
+                chunks[1],
             );
             return;
         }
 
-        let header = Row::new(vec![
-            Cell::from("Command").bold(),
-            Cell::from("PID").bold(),
-            Cell::from("User").bold(),
-            Cell::from("FD").bold(),
-            Cell::from("Type").bold(),
-            Cell::from("Device").bold(),
-            Cell::from("Size/Off").bold(),
-            Cell::from("Node").bold(),
-            Cell::from("Name").bold(),
-        ]);
+        let main_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(3)])
+            .split(chunks[1]);
 
-        let rows: Vec<Row> = self
+        // Create list items in gruyere style: "Port :8080 (1234)" as title, "User: john, Command: node" as description
+        let list_items: Vec<ListItem> = self
             .processes
             .iter()
             .map(|process| {
-                Row::new(vec![
-                    Cell::from(process.command.clone()),
-                    Cell::from(process.pid.clone()),
-                    Cell::from(process.user.clone()),
-                    Cell::from(process.fd.clone()),
-                    Cell::from(process.type_.clone()),
-                    Cell::from(process.device.clone()),
-                    Cell::from(process.size_off.clone()),
-                    Cell::from(process.node.clone()),
-                    Cell::from(process.name.clone()),
+                let port = if let Some(port_part) = process.name.split(':').last() {
+                    port_part.replace("(LISTEN)", "").trim().to_string()
+                } else {
+                    process.name.clone()
+                };
+
+                let title = format!("Port :{} ({})", port, process.pid);
+                let description = format!("User: {}, Command: {}", process.user, process.command);
+                
+                ListItem::new(vec![
+                    ratatui::text::Line::from(title).style(Style::default().fg(Color::White)),
+                    ratatui::text::Line::from(description).style(Style::default().fg(Color::Gray)),
+                    ratatui::text::Line::from(""),
                 ])
             })
             .collect();
 
-        let table = Table::new(
-            rows,
-            [
-                Constraint::Length(15), // Command
-                Constraint::Length(8),  // PID
-                Constraint::Length(12), // User
-                Constraint::Length(6),  // FD
-                Constraint::Length(8),  // Type
-                Constraint::Length(10), // Device
-                Constraint::Length(10), // Size/Off
-                Constraint::Length(8),  // Node
-                Constraint::Min(20),    // Name (remaining space)
-            ],
-        )
-        .header(header)
-        .block(Block::bordered().title(title))
-        .row_highlight_style(Style::default().bg(Color::Blue).fg(Color::White))
-        .highlight_symbol(">> ");
+        let list = List::new(list_items)
+            .block(Block::bordered().border_style(Style::default().fg(Color::Rgb(135, 75, 253))))
+            .highlight_style(
+                Style::default()
+                    .bg(Color::Rgb(238, 111, 248))
+                    .fg(Color::White),
+            )
+            .highlight_symbol(">> ");
 
-        frame.render_stateful_widget(table, frame.area(), &mut self.table_state);
+        frame.render_stateful_widget(list, main_chunks[0], &mut self.list_state);
 
-        if let Some(status) = &self.status_message {
-            let status_area = ratatui::layout::Rect {
-                x: frame.area().x + 1,
-                y: frame.area().bottom() - 3,
-                width: frame.area().width - 2,
-                height: 1,
-            };
-
-            frame.render_widget(
-                Paragraph::new(format!("✓ {}", status)).style(Style::default().fg(Color::Green)),
-                status_area,
-            );
-        }
-
-        let help_area = ratatui::layout::Rect {
-            x: frame.area().x + 1,
-            y: frame.area().bottom() - 2,
-            width: frame.area().width - 2,
-            height: 1,
-        };
-
-        let help_text = match self.mode {
-            AppMode::ProcessList => "↑/↓: Navigate, Enter: Select, r: Refresh, q/Esc/Ctrl-C: Quit",
-            AppMode::ConfirmKill => "y: Confirm kill, n/Esc: Cancel",
-        };
-
-        frame.render_widget(
-            Paragraph::new(help_text).style(Style::default().dim()),
-            help_area,
-        );
+        self.render_status_and_help(frame, main_chunks[1]);
 
         if self.mode == AppMode::ConfirmKill {
             self.render_confirmation_dialog(frame);
         }
+    }
+
+    fn render_header(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        let title_text = "💀 Reaper";
+        let desc_text = "A tiny program for viewing + killing ports";
+        let info_text = "Here's what's running...";
+
+        let header_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ])
+            .split(area);
+
+        frame.render_widget(
+            Paragraph::new(title_text)
+                .style(Style::default().fg(Color::Rgb(238, 111, 248)).bold())
+                .alignment(Alignment::Left),
+            header_layout[0],
+        );
+
+        frame.render_widget(
+            Paragraph::new(desc_text)
+                .style(Style::default().fg(Color::Gray))
+                .alignment(Alignment::Left),
+            header_layout[1],
+        );
+
+        frame.render_widget(
+            Paragraph::new(info_text)
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(Alignment::Left),
+            header_layout[2],
+        );
+    }
+
+    fn render_status_and_help(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        let help_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // Status message
+                Constraint::Length(1), // Help text
+                Constraint::Length(1), // Border space
+            ])
+            .split(area);
+
+        // Status message
+        if let Some(status) = &self.status_message {
+            frame.render_widget(
+                Paragraph::new(format!("✓ {}", status)).style(Style::default().fg(Color::Green)),
+                help_layout[0],
+            );
+        }
+
+        // Help text
+        let help_text = match self.mode {
+            AppMode::ProcessList => "↑/↓: Navigate • Enter: Select • r: Refresh • q/Esc: Quit",
+            AppMode::ConfirmKill => "←/→: Select button • Enter: Confirm • y: Yes • n/Esc: No",
+        };
+
+        frame.render_widget(
+            Paragraph::new(help_text)
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(Alignment::Center),
+            help_layout[1],
+        );
     }
 
     fn render_confirmation_dialog(&self, frame: &mut Frame) {
@@ -216,41 +240,119 @@ impl App {
             let popup_area = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Percentage(25),
-                    Constraint::Length(10),
-                    Constraint::Percentage(65),
+                    Constraint::Percentage(30),
+                    Constraint::Length(9),
+                    Constraint::Percentage(61),
                 ])
                 .split(area)[1];
 
             let popup_area = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(25),
-                    Constraint::Percentage(50),
-                    Constraint::Percentage(25),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(60),
+                    Constraint::Percentage(20),
                 ])
                 .split(popup_area)[1];
 
             frame.render_widget(Clear, popup_area);
 
-            let text = format!(
-                "Kill Process?\n\nCommand: {}\nPID: {}\nUser: {}\nPort: {}\n\n[y] Yes  [n] No",
-                selected_process.command,
-                selected_process.pid,
-                selected_process.user,
-                selected_process.name
+            let port = if let Some(port_part) = selected_process.name.split(':').last() {
+                port_part.replace("(LISTEN)", "").trim().to_string()
+            } else {
+                selected_process.name.clone()
+            };
+
+            let question_text = format!("Are you sure you want to kill port :{}?", port);
+
+            let dialog_content = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(1)
+                .constraints([
+                    Constraint::Length(2), // Question text
+                    Constraint::Length(1), // Spacing
+                    Constraint::Length(3), // Buttons
+                ])
+                .split(popup_area);
+
+            frame.render_widget(
+                Paragraph::new(question_text)
+                    .style(Style::default().fg(Color::White))
+                    .alignment(Alignment::Center)
+                    .wrap(ratatui::widgets::Wrap { trim: true }),
+                dialog_content[0],
             );
 
-            let dialog = Paragraph::new(text)
-                .block(
-                    Block::bordered()
-                        .title("Confirm Action")
-                        .style(Style::default().fg(Color::Yellow)),
-                )
-                .style(Style::default().bg(Color::DarkGray))
-                .alignment(Alignment::Center);
+            let buttons_area = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(dialog_content[2]);
 
-            frame.render_widget(dialog, popup_area);
+            let yes_style = if self.confirm_button_selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Rgb(238, 111, 248))
+            } else {
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Rgb(100, 40, 100))
+            };
+
+            let yes_border_style = if self.confirm_button_selected {
+                Style::default().fg(Color::Yellow).bold()
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+
+            let yes_text = if self.confirm_button_selected {
+                "► Yes ◄"
+            } else {
+                "Yes"
+            };
+
+            frame.render_widget(
+                Paragraph::new(yes_text)
+                    .style(yes_style)
+                    .alignment(Alignment::Center)
+                    .block(Block::bordered().border_style(yes_border_style)),
+                buttons_area[0],
+            );
+
+            let no_style = if !self.confirm_button_selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Rgb(136, 139, 126))
+            } else {
+                Style::default().fg(Color::White).bg(Color::Rgb(60, 60, 60))
+            };
+
+            let no_border_style = if !self.confirm_button_selected {
+                Style::default().fg(Color::Yellow).bold()
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+
+            let no_text = if !self.confirm_button_selected {
+                "► No, take me back ◄"
+            } else {
+                "No, take me back"
+            };
+
+            frame.render_widget(
+                Paragraph::new(no_text)
+                    .style(no_style)
+                    .alignment(Alignment::Center)
+                    .block(Block::bordered().border_style(no_border_style)),
+                buttons_area[1],
+            );
+
+            frame.render_widget(
+                Block::bordered()
+                    .border_style(Style::default().fg(Color::Rgb(135, 75, 253)))
+                    .title("Confirm Action")
+                    .title_style(Style::default().fg(Color::Rgb(135, 75, 253))),
+                popup_area,
+            );
         }
     }
 
@@ -282,6 +384,15 @@ impl App {
             AppMode::ConfirmKill => match (key.modifiers, key.code) {
                 (_, KeyCode::Char('y') | KeyCode::Char('Y')) => self.confirm_kill(),
                 (_, KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc) => self.cancel_kill(),
+                (_, KeyCode::Left) => self.confirm_button_selected = true,
+                (_, KeyCode::Right) => self.confirm_button_selected = false,
+                (_, KeyCode::Enter) => {
+                    if self.confirm_button_selected {
+                        self.confirm_kill();
+                    } else {
+                        self.cancel_kill();
+                    }
+                }
                 _ => {}
             },
         }
@@ -294,7 +405,7 @@ impl App {
             } else {
                 self.selected_index = self.processes.len() - 1;
             }
-            self.table_state.select(Some(self.selected_index));
+            self.list_state.select(Some(self.selected_index));
         }
     }
 
@@ -305,13 +416,14 @@ impl App {
             } else {
                 self.selected_index = 0;
             }
-            self.table_state.select(Some(self.selected_index));
+            self.list_state.select(Some(self.selected_index));
         }
     }
 
     fn enter_confirm_mode(&mut self) {
         if !self.processes.is_empty() {
             self.mode = AppMode::ConfirmKill;
+            self.confirm_button_selected = true;
         }
     }
 
@@ -320,7 +432,6 @@ impl App {
             let pid = &process.pid;
             let command = &process.command;
 
-            // First try graceful kill (SIGTERM)
             match lsof::kill_process(pid) {
                 Ok(()) => {
                     self.status_message =

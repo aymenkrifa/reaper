@@ -1,6 +1,7 @@
 use std::process::Command;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct LsofEntry {
     pub command: String,
     pub pid: String,
