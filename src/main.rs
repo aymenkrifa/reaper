@@ -1,10 +1,10 @@
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
+    DefaultTerminal, Frame,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Style, Stylize},
     widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
-    DefaultTerminal, Frame,
 };
 
 mod lsof;
@@ -317,7 +317,10 @@ impl App {
         }
 
         if !self.search_query.is_empty() && self.filtered_processes.is_empty() {
-            let text = format!("🔍 Nothing found for \"{}\" - Try a different search term or press Esc to clear the search.", self.search_query);
+            let text = format!(
+                "🔍 Nothing found for \"{}\" - Try a different search term or press Esc to clear the search.",
+                self.search_query
+            );
             frame.render_widget(
                 Paragraph::new(text)
                     .style(Style::default().fg(Colors::TEXT_SECONDARY))
