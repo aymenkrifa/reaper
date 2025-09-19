@@ -64,15 +64,13 @@ fn get_process_info(pid: &str) -> (String, f64, Option<SystemTime>) {
     let protocol = get_protocol_for_pid(pid);
     let memory = get_memory_usage(pid);
     let start_time = get_process_start_time(pid);
-    
+
     (protocol, memory, start_time)
 }
 
 fn get_protocol_for_pid(pid: &str) -> String {
-    let output = Command::new("netstat")
-        .arg("-tlnp")
-        .output();
-    
+    let output = Command::new("netstat").arg("-tlnp").output();
+
     match output {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -98,7 +96,7 @@ fn get_memory_usage(pid: &str) -> f64 {
         .arg("-p")
         .arg(pid)
         .output();
-    
+
     match output {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -116,10 +114,10 @@ fn get_process_start_time(pid: &str) -> Option<SystemTime> {
         .arg(pid)
         .output()
         .ok()?;
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     let start_str = stdout.trim();
-    
+
     if !start_str.is_empty() {
         Some(SystemTime::now() - Duration::from_secs(3600))
     } else {
@@ -154,7 +152,7 @@ pub fn get_listening_processes() -> Result<Vec<LsofEntry>, Box<dyn std::error::E
         if fields.len() >= 9 {
             let pid = fields[1].to_string();
             let (protocol, memory_mb, start_time) = get_process_info(&pid);
-            
+
             let entry = LsofEntry {
                 command: fields[0].to_string(),
                 pid,

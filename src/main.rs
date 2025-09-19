@@ -26,7 +26,11 @@ fn get_loading_animation(frame: usize) -> &'static str {
     animations[frame % animations.len()]
 }
 
-fn highlight_matching_text(text: &str, query: &str, style: Style) -> Vec<ratatui::text::Span<'static>> {
+fn highlight_matching_text(
+    text: &str,
+    query: &str,
+    style: Style,
+) -> Vec<ratatui::text::Span<'static>> {
     if query.is_empty() {
         return vec![ratatui::text::Span::styled(text.to_string(), style)];
     }
@@ -40,14 +44,14 @@ fn highlight_matching_text(text: &str, query: &str, style: Style) -> Vec<ratatui
         if start > last_end {
             spans.push(ratatui::text::Span::styled(
                 text[last_end..start].to_string(),
-                style
+                style,
             ));
         }
 
         let end = start + lower_query.len();
         spans.push(ratatui::text::Span::styled(
             text[start..end].to_string(),
-            style.add_modifier(ratatui::style::Modifier::UNDERLINED)
+            style.add_modifier(ratatui::style::Modifier::UNDERLINED),
         ));
 
         last_end = end;
@@ -56,7 +60,7 @@ fn highlight_matching_text(text: &str, query: &str, style: Style) -> Vec<ratatui
     if last_end < text.len() {
         spans.push(ratatui::text::Span::styled(
             text[last_end..].to_string(),
-            style
+            style,
         ));
     }
 
@@ -150,22 +154,26 @@ impl App {
             Ok(processes) => {
                 self.processes = processes;
                 self.apply_filter_and_sort();
-                
-                if !self.search_query.is_empty() && self.filtered_processes.is_empty() && self.mode != AppMode::Search {
+
+                if !self.search_query.is_empty()
+                    && self.filtered_processes.is_empty()
+                    && self.mode != AppMode::Search
+                {
                     self.search_query.clear();
                     self.apply_filter_and_sort();
                 }
-                
+
                 self.error_message = None;
                 self.status_message = None;
                 if self.selected_index >= self.filtered_processes.len() {
                     self.selected_index = 0;
                 }
-                self.list_state.select(if self.filtered_processes.is_empty() {
-                    None
-                } else {
-                    Some(self.selected_index)
-                });
+                self.list_state
+                    .select(if self.filtered_processes.is_empty() {
+                        None
+                    } else {
+                        Some(self.selected_index)
+                    });
             }
             Err(e) => {
                 self.error_message = Some(format!("Failed to get processes: {}", e));
@@ -198,18 +206,23 @@ impl App {
                     let port_b = extract_port(&b.name);
                     port_a.cmp(&port_b)
                 }
-                SortBy::Pid => a.pid.parse::<u32>().unwrap_or(0).cmp(&b.pid.parse::<u32>().unwrap_or(0)),
+                SortBy::Pid => a
+                    .pid
+                    .parse::<u32>()
+                    .unwrap_or(0)
+                    .cmp(&b.pid.parse::<u32>().unwrap_or(0)),
                 SortBy::User => a.user.cmp(&b.user),
                 SortBy::Command => a.command.cmp(&b.command),
-                SortBy::Memory => a.memory_mb.partial_cmp(&b.memory_mb).unwrap_or(std::cmp::Ordering::Equal),
-                SortBy::StartTime => {
-                    match (&a.start_time, &b.start_time) {
-                        (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
-                        (Some(_), None) => std::cmp::Ordering::Less,
-                        (None, Some(_)) => std::cmp::Ordering::Greater,
-                        (None, None) => std::cmp::Ordering::Equal,
-                    }
-                }
+                SortBy::Memory => a
+                    .memory_mb
+                    .partial_cmp(&b.memory_mb)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                SortBy::StartTime => match (&a.start_time, &b.start_time) {
+                    (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                },
             };
 
             if self.sort_ascending {
@@ -223,36 +236,40 @@ impl App {
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         use std::time::{Duration, Instant};
         self.running = true;
-        
+
         terminal.draw(|frame| self.render(frame))?;
-        
+
         self.refresh_processes();
-        
+
         let refresh_interval = Duration::from_secs(1);
         let animation_interval = Duration::from_millis(100);
         let mut last_refresh = Instant::now();
         let mut last_animation = Instant::now();
-        
+
         while self.running {
             let timeout = refresh_interval
                 .checked_sub(last_refresh.elapsed())
                 .unwrap_or(Duration::from_secs(0))
-                .min(animation_interval.checked_sub(last_animation.elapsed()).unwrap_or(Duration::from_secs(0)));
-                
+                .min(
+                    animation_interval
+                        .checked_sub(last_animation.elapsed())
+                        .unwrap_or(Duration::from_secs(0)),
+                );
+
             if crossterm::event::poll(timeout)? {
                 self.handle_crossterm_events()?;
             }
-            
+
             if last_refresh.elapsed() >= refresh_interval {
                 self.refresh_processes();
                 last_refresh = Instant::now();
             }
-            
+
             if last_animation.elapsed() >= animation_interval {
                 self.loading_animation_frame = (self.loading_animation_frame + 1) % 10;
                 last_animation = Instant::now();
             }
-            
+
             terminal.draw(|frame| self.render(frame))?;
         }
         Ok(())
@@ -356,108 +373,151 @@ impl App {
 
                 let title_line = if !self.search_query.is_empty() {
                     let mut spans = vec![ratatui::text::Span::styled(":", base_title_style)];
-                    
+
                     let port_spans = if self.sort_by == SortBy::Port {
                         highlight_matching_text(&port, &self.search_query, sort_highlight_style)
                     } else {
                         highlight_matching_text(&port, &self.search_query, base_title_style)
                     };
                     spans.extend(port_spans);
-                    
+
                     spans.push(ratatui::text::Span::styled(" • ", base_title_style));
-                    
+
                     let command_spans = if self.sort_by == SortBy::Command {
-                        highlight_matching_text(&process.command, &self.search_query, sort_highlight_style)
+                        highlight_matching_text(
+                            &process.command,
+                            &self.search_query,
+                            sort_highlight_style,
+                        )
                     } else {
-                        highlight_matching_text(&process.command, &self.search_query, base_title_style)
+                        highlight_matching_text(
+                            &process.command,
+                            &self.search_query,
+                            base_title_style,
+                        )
                     };
                     spans.extend(command_spans);
-                    
+
                     spans.push(ratatui::text::Span::styled(" • ", base_title_style));
-                    
+
                     let memory_spans = if self.sort_by == SortBy::Memory {
                         highlight_matching_text(&memory, &self.search_query, sort_highlight_style)
                     } else {
                         highlight_matching_text(&memory, &self.search_query, base_title_style)
                     };
                     spans.extend(memory_spans);
-                    
+
                     ratatui::text::Line::from(spans)
                 } else {
                     match self.sort_by {
-                        SortBy::Port => {
-                            ratatui::text::Line::from(vec![
-                                ratatui::text::Span::styled(":", base_title_style),
-                                ratatui::text::Span::styled(port.clone(), sort_highlight_style),
-                                ratatui::text::Span::styled(format!(" • {} • {}", process.command, memory), base_title_style),
-                            ])
-                        },
-                        SortBy::Command => {
-                            ratatui::text::Line::from(vec![
-                                ratatui::text::Span::styled(format!(":{} • ", port), base_title_style),
-                                ratatui::text::Span::styled(process.command.clone(), sort_highlight_style),
-                                ratatui::text::Span::styled(format!(" • {}", memory), base_title_style),
-                            ])
-                        },
-                        SortBy::Memory => {
-                            ratatui::text::Line::from(vec![
-                                ratatui::text::Span::styled(format!(":{} • {} • ", port, process.command), base_title_style),
-                                ratatui::text::Span::styled(memory.clone(), sort_highlight_style),
-                            ])
-                        },
-                        _ => ratatui::text::Line::from(format!(":{} • {} • {}", port, process.command, memory)).style(base_title_style),
+                        SortBy::Port => ratatui::text::Line::from(vec![
+                            ratatui::text::Span::styled(":", base_title_style),
+                            ratatui::text::Span::styled(port.clone(), sort_highlight_style),
+                            ratatui::text::Span::styled(
+                                format!(" • {} • {}", process.command, memory),
+                                base_title_style,
+                            ),
+                        ]),
+                        SortBy::Command => ratatui::text::Line::from(vec![
+                            ratatui::text::Span::styled(format!(":{} • ", port), base_title_style),
+                            ratatui::text::Span::styled(
+                                process.command.clone(),
+                                sort_highlight_style,
+                            ),
+                            ratatui::text::Span::styled(format!(" • {}", memory), base_title_style),
+                        ]),
+                        SortBy::Memory => ratatui::text::Line::from(vec![
+                            ratatui::text::Span::styled(
+                                format!(":{} • {} • ", port, process.command),
+                                base_title_style,
+                            ),
+                            ratatui::text::Span::styled(memory.clone(), sort_highlight_style),
+                        ]),
+                        _ => ratatui::text::Line::from(format!(
+                            ":{} • {} • {}",
+                            port, process.command, memory
+                        ))
+                        .style(base_title_style),
                     }
                 };
 
                 let details_line = if !self.search_query.is_empty() {
                     let mut spans = vec![ratatui::text::Span::styled("↳ ", base_details_style)];
-                    
+
                     let user_spans = if self.sort_by == SortBy::User {
-                        highlight_matching_text(&process.user, &self.search_query, sort_highlight_style)
+                        highlight_matching_text(
+                            &process.user,
+                            &self.search_query,
+                            sort_highlight_style,
+                        )
                     } else {
-                        highlight_matching_text(&process.user, &self.search_query, base_details_style)
+                        highlight_matching_text(
+                            &process.user,
+                            &self.search_query,
+                            base_details_style,
+                        )
                     };
                     spans.extend(user_spans);
-                    
+
                     spans.push(ratatui::text::Span::styled(" • ", base_details_style));
-                    spans.extend(highlight_matching_text(&protocol, &self.search_query, base_details_style));
+                    spans.extend(highlight_matching_text(
+                        &protocol,
+                        &self.search_query,
+                        base_details_style,
+                    ));
                     spans.push(ratatui::text::Span::styled(" • ", base_details_style));
-                    
+
                     let pid_spans = if self.sort_by == SortBy::Pid {
-                        highlight_matching_text(&process.pid, &self.search_query, sort_highlight_style)
+                        highlight_matching_text(
+                            &process.pid,
+                            &self.search_query,
+                            sort_highlight_style,
+                        )
                     } else {
-                        highlight_matching_text(&process.pid, &self.search_query, base_details_style)
+                        highlight_matching_text(
+                            &process.pid,
+                            &self.search_query,
+                            base_details_style,
+                        )
                     };
                     spans.extend(pid_spans);
-                    
+
                     ratatui::text::Line::from(spans)
                 } else {
                     match self.sort_by {
-                        SortBy::User => {
-                            ratatui::text::Line::from(vec![
-                                ratatui::text::Span::styled("↳ ", base_details_style),
-                                ratatui::text::Span::styled(process.user.clone(), sort_highlight_style),
-                                ratatui::text::Span::styled(format!(" • {} • {}", protocol, process.pid), base_details_style),
-                            ])
-                        },
-                        SortBy::Pid => {
-                            ratatui::text::Line::from(vec![
-                                ratatui::text::Span::styled(format!("↳ {} • {} • ", process.user, protocol), base_details_style),
-                                ratatui::text::Span::styled(process.pid.clone(), sort_highlight_style),
-                            ])
-                        },
-                        _ => ratatui::text::Line::from(format!("↳ {} • {} • {}", process.user, protocol, process.pid)).style(base_details_style),
+                        SortBy::User => ratatui::text::Line::from(vec![
+                            ratatui::text::Span::styled("↳ ", base_details_style),
+                            ratatui::text::Span::styled(process.user.clone(), sort_highlight_style),
+                            ratatui::text::Span::styled(
+                                format!(" • {} • {}", protocol, process.pid),
+                                base_details_style,
+                            ),
+                        ]),
+                        SortBy::Pid => ratatui::text::Line::from(vec![
+                            ratatui::text::Span::styled(
+                                format!("↳ {} • {} • ", process.user, protocol),
+                                base_details_style,
+                            ),
+                            ratatui::text::Span::styled(process.pid.clone(), sort_highlight_style),
+                        ]),
+                        _ => ratatui::text::Line::from(format!(
+                            "↳ {} • {} • {}",
+                            process.user, protocol, process.pid
+                        ))
+                        .style(base_details_style),
                     }
                 };
 
                 let meta_line = match self.sort_by {
-                    SortBy::StartTime => {
-                        ratatui::text::Line::from(vec![
-                            ratatui::text::Span::styled("  └ uptime: ", base_meta_style),
-                            ratatui::text::Span::styled(format!("{} ago", uptime), sort_highlight_style),
-                        ])
-                    },
-                    _ => ratatui::text::Line::from(format!("  └ uptime: {} ago", uptime)).style(base_meta_style),
+                    SortBy::StartTime => ratatui::text::Line::from(vec![
+                        ratatui::text::Span::styled("  └ uptime: ", base_meta_style),
+                        ratatui::text::Span::styled(
+                            format!("{} ago", uptime),
+                            sort_highlight_style,
+                        ),
+                    ]),
+                    _ => ratatui::text::Line::from(format!("  └ uptime: {} ago", uptime))
+                        .style(base_meta_style),
                 };
 
                 ListItem::new(vec![
@@ -476,10 +536,7 @@ impl App {
         };
 
         let list = List::new(list_items)
-            .highlight_style(
-                Style::default()
-                    .fg(Colors::ACCENT)
-            )
+            .highlight_style(Style::default().fg(Colors::ACCENT))
             .highlight_symbol(highlight_symbol);
 
         frame.render_stateful_widget(list, main_chunks[0], &mut self.list_state);
@@ -496,44 +553,57 @@ impl App {
         let desc_text = "A simple port management & process monitoring";
         let process_count = self.filtered_processes.len();
         let total_count = self.processes.len();
-        
+
         let info_text = if process_count == 0 && total_count == 0 {
             "Scanning active ports...".to_string()
         } else if process_count != total_count {
-            format!("{}/{} process{} ", 
-                process_count, total_count, 
-                if total_count == 1 { "" } else { "es" })
+            format!(
+                "{}/{} process{} ",
+                process_count,
+                total_count,
+                if total_count == 1 { "" } else { "es" }
+            )
         } else {
-            format!("{} process{}", process_count, if process_count == 1 { "" } else { "es" })
+            format!(
+                "{} process{}",
+                process_count,
+                if process_count == 1 { "" } else { "es" }
+            )
         };
 
         let info_widget = if !self.search_query.is_empty() {
-            Paragraph::new(vec![
-                ratatui::text::Line::from(vec![
-                    ratatui::text::Span::styled(info_text, Style::default().fg(Colors::TEXT_TERTIARY)),
-                    ratatui::text::Span::styled("(filtered by: \"", Style::default().fg(Colors::TEXT_TERTIARY)),
-                    ratatui::text::Span::styled(self.search_query.clone(), Style::default().fg(Colors::ACCENT).bold()),
-                    ratatui::text::Span::styled("\")", Style::default().fg(Colors::TEXT_TERTIARY)),
-                ])
-            ])
+            Paragraph::new(vec![ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(info_text, Style::default().fg(Colors::TEXT_TERTIARY)),
+                ratatui::text::Span::styled(
+                    "(filtered by: \"",
+                    Style::default().fg(Colors::TEXT_TERTIARY),
+                ),
+                ratatui::text::Span::styled(
+                    self.search_query.clone(),
+                    Style::default().fg(Colors::ACCENT).bold(),
+                ),
+                ratatui::text::Span::styled("\")", Style::default().fg(Colors::TEXT_TERTIARY)),
+            ])])
         } else if self.mode == AppMode::Search {
-            Paragraph::new(vec![
-                ratatui::text::Line::from(vec![
-                    ratatui::text::Span::styled(info_text, Style::default().fg(Colors::TEXT_TERTIARY)),
-                    ratatui::text::Span::styled(" [searching: ", Style::default().fg(Colors::TEXT_TERTIARY)),
-                    ratatui::text::Span::styled("_", Style::default().fg(Colors::ACCENT).bold()),
-                    ratatui::text::Span::styled("]", Style::default().fg(Colors::TEXT_TERTIARY)),
-                ])
-            ])
+            Paragraph::new(vec![ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(info_text, Style::default().fg(Colors::TEXT_TERTIARY)),
+                ratatui::text::Span::styled(
+                    " [searching: ",
+                    Style::default().fg(Colors::TEXT_TERTIARY),
+                ),
+                ratatui::text::Span::styled("_", Style::default().fg(Colors::ACCENT).bold()),
+                ratatui::text::Span::styled("]", Style::default().fg(Colors::TEXT_TERTIARY)),
+            ])])
         } else {
             Paragraph::new(info_text).style(Style::default().fg(Colors::TEXT_TERTIARY))
         };
 
-        let sort_text = format!("sorted by {} {} {}", 
+        let sort_text = format!(
+            "sorted by {} {} {}",
             match self.sort_by {
                 SortBy::Port => "port",
                 SortBy::Pid => "pid",
-                SortBy::User => "user", 
+                SortBy::User => "user",
                 SortBy::Command => "command",
                 SortBy::Memory => "memory",
                 SortBy::StartTime => "start time",
@@ -541,7 +611,7 @@ impl App {
             if self.sort_ascending { "↑" } else { "↓" },
             match self.sort_by {
                 SortBy::Port => "🟡",
-                SortBy::Pid => "🔵", 
+                SortBy::Pid => "🔵",
                 SortBy::User => "🟢",
                 SortBy::Command => "🟣",
                 SortBy::Memory => "🔴",
@@ -561,27 +631,21 @@ impl App {
             .split(area);
 
         frame.render_widget(
-            Paragraph::new(vec![
-                ratatui::text::Line::from(vec![
-                    ratatui::text::Span::styled(title_text, Style::default().fg(Colors::ACCENT).bold()),
-                    ratatui::text::Span::styled(" • ", Style::default().fg(Colors::TEXT_TERTIARY)),
-                    ratatui::text::Span::styled(desc_text, Style::default().fg(Colors::TEXT_SECONDARY).bold()),
-                ])
-            ])
-                .alignment(Alignment::Left),
+            Paragraph::new(vec![ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(title_text, Style::default().fg(Colors::ACCENT).bold()),
+                ratatui::text::Span::styled(" • ", Style::default().fg(Colors::TEXT_TERTIARY)),
+                ratatui::text::Span::styled(
+                    desc_text,
+                    Style::default().fg(Colors::TEXT_SECONDARY).bold(),
+                ),
+            ])])
+            .alignment(Alignment::Left),
             header_layout[0],
         );
 
-        frame.render_widget(
-            Paragraph::new(""),
-            header_layout[1],
-        );
+        frame.render_widget(Paragraph::new(""), header_layout[1]);
 
-        frame.render_widget(
-            info_widget
-                .alignment(Alignment::Left),
-            header_layout[2],
-        );
+        frame.render_widget(info_widget.alignment(Alignment::Left), header_layout[2]);
 
         frame.render_widget(
             Paragraph::new(sort_text)
@@ -613,7 +677,10 @@ impl App {
                 if self.search_query.is_empty() {
                     "↑/↓: Navigate • Enter: Select • /: Search • s: Sort • r: Refresh • q/Esc: Quit"
                 } else {
-                    &format!("Search: \"{}\" • Esc: Clear search • ↑/↓: Navigate • Enter: Select", self.search_query)
+                    &format!(
+                        "Search: \"{}\" • Esc: Clear search • ↑/↓: Navigate • Enter: Select",
+                        self.search_query
+                    )
                 }
             }
             AppMode::ConfirmKill => "←/→: Select button • Enter: Confirm • y: Yes • n/Esc: No",
@@ -683,12 +750,9 @@ impl App {
                 .split(dialog_content[2]);
 
             let yes_style = if self.confirm_button_selected {
-                Style::default()
-                    .fg(Colors::ACCENT)
-                    .bold()
+                Style::default().fg(Colors::ACCENT).bold()
             } else {
-                Style::default()
-                    .fg(Colors::TEXT_SECONDARY)
+                Style::default().fg(Colors::TEXT_SECONDARY)
             };
 
             let yes_text = if self.confirm_button_selected {
@@ -705,12 +769,9 @@ impl App {
             );
 
             let no_style = if !self.confirm_button_selected {
-                Style::default()
-                    .fg(Colors::ACCENT)
-                    .bold()
+                Style::default().fg(Colors::ACCENT).bold()
             } else {
-                Style::default()
-                    .fg(Colors::TEXT_SECONDARY)
+                Style::default().fg(Colors::TEXT_SECONDARY)
             };
 
             let no_text = if !self.confirm_button_selected {
@@ -750,11 +811,12 @@ impl App {
                         self.search_query.clear();
                         self.apply_filter_and_sort();
                         self.selected_index = 0;
-                        self.list_state.select(if self.filtered_processes.is_empty() {
-                            None
-                        } else {
-                            Some(0)
-                        });
+                        self.list_state
+                            .select(if self.filtered_processes.is_empty() {
+                                None
+                            } else {
+                                Some(0)
+                            });
                     } else {
                         self.quit();
                     }
@@ -801,11 +863,12 @@ impl App {
                     self.search_query.pop();
                     self.apply_filter_and_sort();
                     self.selected_index = 0;
-                    self.list_state.select(if self.filtered_processes.is_empty() {
-                        None
-                    } else {
-                        Some(0)
-                    });
+                    self.list_state
+                        .select(if self.filtered_processes.is_empty() {
+                            None
+                        } else {
+                            Some(0)
+                        });
                 }
                 _ => {}
             },
@@ -830,21 +893,23 @@ impl App {
                     self.search_query.pop();
                     self.apply_filter_and_sort();
                     self.selected_index = 0;
-                    self.list_state.select(if self.filtered_processes.is_empty() {
-                        None
-                    } else {
-                        Some(0)
-                    });
+                    self.list_state
+                        .select(if self.filtered_processes.is_empty() {
+                            None
+                        } else {
+                            Some(0)
+                        });
                 }
                 (_, KeyCode::Char(c)) => {
                     self.search_query.push(c);
                     self.apply_filter_and_sort();
                     self.selected_index = 0;
-                    self.list_state.select(if self.filtered_processes.is_empty() {
-                        None
-                    } else {
-                        Some(0)
-                    });
+                    self.list_state
+                        .select(if self.filtered_processes.is_empty() {
+                            None
+                        } else {
+                            Some(0)
+                        });
                 }
                 _ => {}
             },
@@ -889,22 +954,24 @@ impl App {
         self.search_query.clear();
         self.apply_filter_and_sort();
         self.selected_index = 0;
-        self.list_state.select(if self.filtered_processes.is_empty() {
-            None
-        } else {
-            Some(0)
-        });
+        self.list_state
+            .select(if self.filtered_processes.is_empty() {
+                None
+            } else {
+                Some(0)
+            });
     }
 
     fn apply_search(&mut self) {
         self.mode = AppMode::ProcessList;
         self.apply_filter_and_sort();
         self.selected_index = 0;
-        self.list_state.select(if self.filtered_processes.is_empty() {
-            None
-        } else {
-            Some(0)
-        });
+        self.list_state
+            .select(if self.filtered_processes.is_empty() {
+                None
+            } else {
+                Some(0)
+            });
     }
 
     fn cycle_sort(&mut self) {
