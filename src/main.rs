@@ -129,8 +129,7 @@ impl App {
             let text = self.status_message.as_ref().unwrap();
             frame.render_widget(
                 Paragraph::new(format!("{}\n\nPlease wait...", text))
-                    .block(Block::bordered()
-                        .border_style(Style::default().fg(Color::Rgb(135, 75, 253))))
+                    .style(Style::default().fg(Color::Gray))
                     .centered(),
                 chunks[1],
             );
@@ -164,11 +163,9 @@ impl App {
             .collect();
 
         let list = List::new(list_items)
-            .block(Block::bordered().border_style(Style::default().fg(Color::Rgb(135, 75, 253))))
             .highlight_style(
                 Style::default()
-                    .bg(Color::Rgb(238, 111, 248))
-                    .fg(Color::White),
+                    .fg(Color::Rgb(238, 111, 248))
             )
             .highlight_symbol(">> ");
 
@@ -184,7 +181,12 @@ impl App {
     fn render_header(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         let title_text = "💀 Reaper";
         let desc_text = "A tiny program for viewing + killing ports";
-        let info_text = "Here's what's running...";
+        let process_count = self.processes.len();
+        let info_text = if process_count == 0 {
+            "Here's what's running...".to_string()
+        } else {
+            format!("{} process{}", process_count, if process_count == 1 { "" } else { "es" })
+        };
 
         let header_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -257,8 +259,8 @@ impl App {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Percentage(30),
-                    Constraint::Length(9),
-                    Constraint::Percentage(61),
+                    Constraint::Length(7),
+                    Constraint::Percentage(63),
                 ])
                 .split(area)[1];
 
@@ -283,7 +285,6 @@ impl App {
 
             let dialog_content = Layout::default()
                 .direction(Direction::Vertical)
-                .margin(1)
                 .constraints([
                     Constraint::Length(2), // Question text
                     Constraint::Length(1), // Spacing
@@ -306,18 +307,11 @@ impl App {
 
             let yes_style = if self.confirm_button_selected {
                 Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Rgb(238, 111, 248))
+                    .fg(Color::Rgb(238, 111, 248))
+                    .bold()
             } else {
                 Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Rgb(100, 40, 100))
-            };
-
-            let yes_border_style = if self.confirm_button_selected {
-                Style::default().fg(Color::Yellow).bold()
-            } else {
-                Style::default().fg(Color::Gray)
+                    .fg(Color::Gray)
             };
 
             let yes_text = if self.confirm_button_selected {
@@ -329,23 +323,17 @@ impl App {
             frame.render_widget(
                 Paragraph::new(yes_text)
                     .style(yes_style)
-                    .alignment(Alignment::Center)
-                    .block(Block::bordered().border_style(yes_border_style)),
+                    .alignment(Alignment::Center),
                 buttons_area[0],
             );
 
             let no_style = if !self.confirm_button_selected {
                 Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Rgb(136, 139, 126))
+                    .fg(Color::Rgb(238, 111, 248))
+                    .bold()
             } else {
-                Style::default().fg(Color::White).bg(Color::Rgb(60, 60, 60))
-            };
-
-            let no_border_style = if !self.confirm_button_selected {
-                Style::default().fg(Color::Yellow).bold()
-            } else {
-                Style::default().fg(Color::Gray)
+                Style::default()
+                    .fg(Color::Gray)
             };
 
             let no_text = if !self.confirm_button_selected {
@@ -357,17 +345,8 @@ impl App {
             frame.render_widget(
                 Paragraph::new(no_text)
                     .style(no_style)
-                    .alignment(Alignment::Center)
-                    .block(Block::bordered().border_style(no_border_style)),
+                    .alignment(Alignment::Center),
                 buttons_area[1],
-            );
-
-            frame.render_widget(
-                Block::bordered()
-                    .border_style(Style::default().fg(Color::Rgb(135, 75, 253)))
-                    .title("Confirm Action")
-                    .title_style(Style::default().fg(Color::Rgb(135, 75, 253))),
-                popup_area,
             );
         }
     }
