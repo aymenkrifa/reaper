@@ -316,27 +316,25 @@ impl App {
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     self.refresh_processes();
                 }
-                Err(e) => {
-                    match lsof::force_kill_process(pid) {
-                        Ok(()) => {
-                            self.status_message =
-                                Some(format!("Force killed process {} ({})", command, pid));
-                            self.error_message = None;
-                            self.mode = AppMode::ProcessList;
+                Err(e) => match lsof::force_kill_process(pid) {
+                    Ok(()) => {
+                        self.status_message =
+                            Some(format!("Force killed process {} ({})", command, pid));
+                        self.error_message = None;
+                        self.mode = AppMode::ProcessList;
 
-                            std::thread::sleep(std::time::Duration::from_millis(500));
-                            self.refresh_processes();
-                        }
-                        Err(force_err) => {
-                            self.error_message = Some(format!(
-                                "Failed to kill process: {} | Force kill also failed: {}",
-                                e, force_err
-                            ));
-                            self.status_message = None;
-                            self.mode = AppMode::ProcessList;
-                        }
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        self.refresh_processes();
                     }
-                }
+                    Err(force_err) => {
+                        self.error_message = Some(format!(
+                            "Failed to kill process: {} | Force kill also failed: {}",
+                            e, force_err
+                        ));
+                        self.status_message = None;
+                        self.mode = AppMode::ProcessList;
+                    }
+                },
             }
         }
     }

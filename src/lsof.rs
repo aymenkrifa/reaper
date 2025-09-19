@@ -22,7 +22,11 @@ pub fn get_listening_processes() -> Result<Vec<LsofEntry>, Box<dyn std::error::E
         .output()?;
 
     if !output.status.success() {
-        return Err(format!("lsof command failed: {}", String::from_utf8_lossy(&output.stderr)).into());
+        return Err(format!(
+            "lsof command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -54,10 +58,7 @@ pub fn get_listening_processes() -> Result<Vec<LsofEntry>, Box<dyn std::error::E
 }
 
 pub fn kill_process(pid: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let output = Command::new("kill")
-        .arg("-TERM")
-        .arg(pid)
-        .output()?;
+    let output = Command::new("kill").arg("-TERM").arg(pid).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -68,10 +69,7 @@ pub fn kill_process(pid: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn force_kill_process(pid: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let output = Command::new("kill")
-        .arg("-KILL")
-        .arg(pid)
-        .output()?;
+    let output = Command::new("kill").arg("-KILL").arg(pid).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
