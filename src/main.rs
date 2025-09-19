@@ -2,10 +2,10 @@ use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal, Frame,
-    layout::{Constraint, Layout, Direction, Alignment},
-    style::{Stylize, Style, Color},
+    layout::{Alignment, Constraint, Direction, Layout},
+    style::{Color, Style, Stylize},
     text::Line,
-    widgets::{Block, Cell, Paragraph, Row, Table, TableState, Clear},
+    widgets::{Block, Cell, Clear, Paragraph, Row, Table, TableState},
 };
 
 mod lsof;
@@ -24,20 +24,14 @@ fn main() -> color_eyre::Result<()> {
     result
 }
 
-/// The main application which holds the state and logic of the application.
 #[derive(Debug)]
 pub struct App {
-    /// Is the application running?
     running: bool,
-    /// List of listening processes from lsof
     processes: Vec<lsof::LsofEntry>,
-    /// Error message to display if lsof fails
     error_message: Option<String>,
-    /// Current application mode
+    status_message: Option<String>,
     mode: AppMode,
-    /// Selected process index
     selected_index: usize,
-    /// Table state for highlighting
     table_state: TableState,
 }
 
@@ -45,11 +39,12 @@ impl Default for App {
     fn default() -> Self {
         let mut table_state = TableState::default();
         table_state.select(Some(0));
-        
+
         Self {
             running: false,
             processes: Vec::new(),
             error_message: None,
+            status_message: None,
             mode: AppMode::ProcessList,
             selected_index: 0,
             table_state,
@@ -58,32 +53,34 @@ impl Default for App {
 }
 
 impl App {
-    /// Construct a new instance of [`App`].
     pub fn new() -> Self {
         let mut app = Self::default();
         app.refresh_processes();
         app
     }
 
-    /// Refresh the list of listening processes
     pub fn refresh_processes(&mut self) {
         match lsof::get_listening_processes() {
             Ok(processes) => {
                 self.processes = processes;
                 self.error_message = None;
-                // Reset selection if processes changed
+                self.status_message = None;
                 if self.selected_index >= self.processes.len() {
                     self.selected_index = 0;
                 }
-                self.table_state.select(if self.processes.is_empty() { None } else { Some(self.selected_index) });
+                self.table_state.select(if self.processes.is_empty() {
+                    None
+                } else {
+                    Some(self.selected_index)
+                });
             }
             Err(e) => {
                 self.error_message = Some(format!("Failed to get processes: {}", e));
+                self.status_message = None;
             }
         }
     }
 
-    /// Run the application's main loop.
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
         while self.running {
@@ -93,12 +90,6 @@ impl App {
         Ok(())
     }
 
-    /// Renders the user interface.
-    ///
-    /// This is where you add new widgets. See the following resources for more information:
-    ///
-    /// - <https://docs.rs/ratatui/latest/ratatui/widgets/index.html>
-    /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
     fn render(&mut self, frame: &mut Frame) {
         let title = Line::from("Reaper - Process Monitor")
             .bold()
@@ -106,7 +97,6 @@ impl App {
             .centered();
 
         if let Some(error) = &self.error_message {
-            // Show error message if lsof failed
             let text = format!("Error: {}\n\nPress 'r' to retry, 'q' to quit.", error);
             frame.render_widget(
                 Paragraph::new(text)
@@ -117,7 +107,6 @@ impl App {
             return;
         }
 
-        // Create table header
         let header = Row::new(vec![
             Cell::from("Command").bold(),
             Cell::from("PID").bold(),
@@ -130,7 +119,6 @@ impl App {
             Cell::from("Name").bold(),
         ]);
 
-        // Create table rows from processes
         let rows: Vec<Row> = self
             .processes
             .iter()
@@ -170,7 +158,20 @@ impl App {
 
         frame.render_stateful_widget(table, frame.area(), &mut self.table_state);
 
-        // Show help text at the bottom
+        if let Some(status) = &self.status_message {
+            let status_area = ratatui::layout::Rect {
+                x: frame.area().x + 1,
+                y: frame.area().bottom() - 3,
+                width: frame.area().width - 2,
+                height: 1,
+            };
+
+            frame.render_widget(
+                Paragraph::new(format!("✓ {}", status)).style(Style::default().fg(Color::Green)),
+                status_area,
+            );
+        }
+
         let help_area = ratatui::layout::Rect {
             x: frame.area().x + 1,
             y: frame.area().bottom() - 2,
@@ -182,13 +183,12 @@ impl App {
             AppMode::ProcessList => "↑/↓: Navigate, Enter: Select, r: Refresh, q/Esc/Ctrl-C: Quit",
             AppMode::ConfirmKill => "y: Confirm kill, n/Esc: Cancel",
         };
-        
+
         frame.render_widget(
             Paragraph::new(help_text).style(Style::default().dim()),
             help_area,
         );
 
-        // Render confirmation dialog if in ConfirmKill mode
         if self.mode == AppMode::ConfirmKill {
             self.render_confirmation_dialog(frame);
         }
@@ -197,8 +197,7 @@ impl App {
     fn render_confirmation_dialog(&self, frame: &mut Frame) {
         if let Some(selected_process) = self.processes.get(self.selected_index) {
             let area = frame.area();
-            
-            // Create a centered popup area
+
             let popup_area = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
@@ -217,7 +216,6 @@ impl App {
                 ])
                 .split(popup_area)[1];
 
-            // Clear the background
             frame.render_widget(Clear, popup_area);
 
             let text = format!(
@@ -232,7 +230,7 @@ impl App {
                 .block(
                     Block::bordered()
                         .title("Confirm Action")
-                        .style(Style::default().fg(Color::Yellow))
+                        .style(Style::default().fg(Color::Yellow)),
                 )
                 .style(Style::default().bg(Color::DarkGray))
                 .alignment(Alignment::Center);
@@ -241,13 +239,8 @@ impl App {
         }
     }
 
-    /// Reads the crossterm events and updates the state of [`App`].
-    ///
-    /// If your application needs to perform work in between handling events, you can use the
-    /// [`event::poll`] function to check if there are any events available with a timeout.
     fn handle_crossterm_events(&mut self) -> Result<()> {
         match event::read()? {
-            // it's important to check KeyEventKind::Press to avoid handling key release events
             Event::Key(key) if key.kind == KeyEventKind::Press => self.on_key_event(key),
             Event::Mouse(_) => {}
             Event::Resize(_, _) => {}
@@ -256,27 +249,26 @@ impl App {
         Ok(())
     }
 
-    /// Handles the key events and updates the state of [`App`].
     fn on_key_event(&mut self, key: KeyEvent) {
+        if self.mode == AppMode::ProcessList {
+            self.status_message = None;
+        }
+
         match self.mode {
-            AppMode::ProcessList => {
-                match (key.modifiers, key.code) {
-                    (_, KeyCode::Esc | KeyCode::Char('q'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-                    (_, KeyCode::Char('r') | KeyCode::Char('R')) => self.refresh_processes(),
-                    (_, KeyCode::Up) => self.select_previous(),
-                    (_, KeyCode::Down) => self.select_next(),
-                    (_, KeyCode::Enter) => self.enter_confirm_mode(),
-                    _ => {}
-                }
-            }
-            AppMode::ConfirmKill => {
-                match (key.modifiers, key.code) {
-                    (_, KeyCode::Char('y') | KeyCode::Char('Y')) => self.confirm_kill(),
-                    (_, KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc) => self.cancel_kill(),
-                    _ => {}
-                }
-            }
+            AppMode::ProcessList => match (key.modifiers, key.code) {
+                (_, KeyCode::Esc | KeyCode::Char('q'))
+                | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
+                (_, KeyCode::Char('r') | KeyCode::Char('R')) => self.refresh_processes(),
+                (_, KeyCode::Up) => self.select_previous(),
+                (_, KeyCode::Down) => self.select_next(),
+                (_, KeyCode::Enter) => self.enter_confirm_mode(),
+                _ => {}
+            },
+            AppMode::ConfirmKill => match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y') | KeyCode::Char('Y')) => self.confirm_kill(),
+                (_, KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc) => self.cancel_kill(),
+                _ => {}
+            },
         }
     }
 
@@ -309,16 +301,50 @@ impl App {
     }
 
     fn confirm_kill(&mut self) {
-        // TODO: Implement actual process killing logic here
-        // For now, just return to the process list
-        self.mode = AppMode::ProcessList;
+        if let Some(process) = self.processes.get(self.selected_index) {
+            let pid = &process.pid;
+            let command = &process.command;
+
+            // First try graceful kill (SIGTERM)
+            match lsof::kill_process(pid) {
+                Ok(()) => {
+                    self.status_message =
+                        Some(format!("Successfully killed process {} ({})", command, pid));
+                    self.error_message = None;
+                    self.mode = AppMode::ProcessList;
+
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    self.refresh_processes();
+                }
+                Err(e) => {
+                    match lsof::force_kill_process(pid) {
+                        Ok(()) => {
+                            self.status_message =
+                                Some(format!("Force killed process {} ({})", command, pid));
+                            self.error_message = None;
+                            self.mode = AppMode::ProcessList;
+
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                            self.refresh_processes();
+                        }
+                        Err(force_err) => {
+                            self.error_message = Some(format!(
+                                "Failed to kill process: {} | Force kill also failed: {}",
+                                e, force_err
+                            ));
+                            self.status_message = None;
+                            self.mode = AppMode::ProcessList;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn cancel_kill(&mut self) {
         self.mode = AppMode::ProcessList;
     }
 
-    /// Set running to false to quit the application.
     fn quit(&mut self) {
         self.running = false;
     }
