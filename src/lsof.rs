@@ -52,3 +52,31 @@ pub fn get_listening_processes() -> Result<Vec<LsofEntry>, Box<dyn std::error::E
 
     Ok(entries)
 }
+
+pub fn kill_process(pid: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("kill")
+        .arg("-TERM")
+        .arg(pid)
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to kill process {}: {}", pid, stderr).into());
+    }
+
+    Ok(())
+}
+
+pub fn force_kill_process(pid: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("kill")
+        .arg("-KILL")
+        .arg(pid)
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to force kill process {}: {}", pid, stderr).into());
+    }
+
+    Ok(())
+}
