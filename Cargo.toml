@@ -1,7 +1,8 @@
 [package]
 name = "reaper"
 version = "0.1.0"
-description = "View and kill active ports"
+description = "A simple TUI for listing and killing listening ports"
+repository = "https://github.com/aymenkrifa/reaper"
 authors = ["aymenkrifa <aymenkrifa@gmail.com>"]
 license = "MIT"
 edition = "2024"
