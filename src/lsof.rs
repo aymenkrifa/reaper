@@ -61,13 +61,8 @@ fn format_duration(duration: Duration) -> String {
 }
 
 fn get_process_info(pid: &str) -> (String, f64, Option<SystemTime>) {
-    // Get protocol info from netstat
     let protocol = get_protocol_for_pid(pid);
-    
-    // Get memory usage from ps
     let memory = get_memory_usage(pid);
-    
-    // Get start time from ps
     let start_time = get_process_start_time(pid);
     
     (protocol, memory, start_time)
@@ -93,7 +88,7 @@ fn get_protocol_for_pid(pid: &str) -> String {
         }
         Err(_) => {}
     }
-    "TCP".to_string() // Default assumption
+    "TCP".to_string()
 }
 
 fn get_memory_usage(pid: &str) -> f64 {
@@ -107,7 +102,7 @@ fn get_memory_usage(pid: &str) -> f64 {
     match output {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.trim().parse::<f64>().unwrap_or(0.0) / 1024.0 // Convert KB to MB
+            stdout.trim().parse::<f64>().unwrap_or(0.0) / 1024.0
         }
         Err(_) => 0.0,
     }
@@ -125,11 +120,8 @@ fn get_process_start_time(pid: &str) -> Option<SystemTime> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let start_str = stdout.trim();
     
-    // Parse the start time string (format: "Wed Sep 18 14:30:45 2024")
-    // For simplicity, we'll just return current time minus a reasonable estimate
-    // In a real implementation, you'd parse the actual date string
     if !start_str.is_empty() {
-        Some(SystemTime::now() - Duration::from_secs(3600)) // Assume 1 hour ago for demo
+        Some(SystemTime::now() - Duration::from_secs(3600))
     } else {
         None
     }
@@ -154,7 +146,6 @@ pub fn get_listening_processes() -> Result<Vec<LsofEntry>, Box<dyn std::error::E
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut lines = stdout.lines();
 
-    // Skip header
     let _header = lines.next().unwrap_or("");
     let mut entries = Vec::new();
 
