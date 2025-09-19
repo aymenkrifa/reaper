@@ -315,47 +315,50 @@ impl App {
                 };
 
                 // Create lines with highlighted sort values
+                // First row: Port → Process Name → Memory Usage
                 let title_line = match self.sort_by {
                     SortBy::Port => {
                         ratatui::text::Line::from(vec![
                             ratatui::text::Span::styled(":", base_title_style),
                             ratatui::text::Span::styled(port.clone(), sort_highlight_style),
-                            ratatui::text::Span::styled(format!(" • {} • {}", protocol, process.pid), base_title_style),
+                            ratatui::text::Span::styled(format!(" • {} • {}", process.command, memory), base_title_style),
                         ])
                     },
-                    SortBy::Pid => {
+                    SortBy::Command => {
                         ratatui::text::Line::from(vec![
-                            ratatui::text::Span::styled(format!(":{} • {} • ", port, protocol), base_title_style),
-                            ratatui::text::Span::styled(process.pid.clone(), sort_highlight_style),
+                            ratatui::text::Span::styled(format!(":{} • ", port), base_title_style),
+                            ratatui::text::Span::styled(process.command.clone(), sort_highlight_style),
+                            ratatui::text::Span::styled(format!(" • {}", memory), base_title_style),
                         ])
                     },
-                    _ => ratatui::text::Line::from(format!(":{} • {} • {}", port, protocol, process.pid)).style(base_title_style),
+                    SortBy::Memory => {
+                        ratatui::text::Line::from(vec![
+                            ratatui::text::Span::styled(format!(":{} • {} • ", port, process.command), base_title_style),
+                            ratatui::text::Span::styled(memory.clone(), sort_highlight_style),
+                        ])
+                    },
+                    _ => ratatui::text::Line::from(format!(":{} • {} • {}", port, process.command, memory)).style(base_title_style),
                 };
 
+                // Second row: User → Protocol → PID
                 let details_line = match self.sort_by {
                     SortBy::User => {
                         ratatui::text::Line::from(vec![
                             ratatui::text::Span::styled("↳ ", base_details_style),
                             ratatui::text::Span::styled(process.user.clone(), sort_highlight_style),
-                            ratatui::text::Span::styled(format!(" • {} • {}", process.command, memory), base_details_style),
+                            ratatui::text::Span::styled(format!(" • {} • {}", protocol, process.pid), base_details_style),
                         ])
                     },
-                    SortBy::Command => {
+                    SortBy::Pid => {
                         ratatui::text::Line::from(vec![
-                            ratatui::text::Span::styled(format!("↳ {} • ", process.user), base_details_style),
-                            ratatui::text::Span::styled(process.command.clone(), sort_highlight_style),
-                            ratatui::text::Span::styled(format!(" • {}", memory), base_details_style),
+                            ratatui::text::Span::styled(format!("↳ {} • {} • ", process.user, protocol), base_details_style),
+                            ratatui::text::Span::styled(process.pid.clone(), sort_highlight_style),
                         ])
                     },
-                    SortBy::Memory => {
-                        ratatui::text::Line::from(vec![
-                            ratatui::text::Span::styled(format!("↳ {} • {} • ", process.user, process.command), base_details_style),
-                            ratatui::text::Span::styled(memory.clone(), sort_highlight_style),
-                        ])
-                    },
-                    _ => ratatui::text::Line::from(format!("↳ {} • {} • {}", process.user, process.command, memory)).style(base_details_style),
+                    _ => ratatui::text::Line::from(format!("↳ {} • {} • {}", process.user, protocol, process.pid)).style(base_details_style),
                 };
 
+                // Third row: Uptime (unchanged)
                 let meta_line = match self.sort_by {
                     SortBy::StartTime => {
                         ratatui::text::Line::from(vec![
