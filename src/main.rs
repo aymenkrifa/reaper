@@ -82,10 +82,25 @@ impl App {
     }
 
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
+        use std::time::{Duration, Instant};
         self.running = true;
+        let refresh_interval = Duration::from_secs(1);
+        let mut last_refresh = Instant::now();
         while self.running {
+            // Poll for events with a timeout
+            let timeout = refresh_interval
+                .checked_sub(last_refresh.elapsed())
+                .unwrap_or(Duration::from_secs(0));
+            if crossterm::event::poll(timeout)? {
+                // There is an event (likely a key event)
+                self.handle_crossterm_events()?;
+            }
+            // Check if it's time to refresh
+            if last_refresh.elapsed() >= refresh_interval {
+                self.refresh_processes();
+                last_refresh = Instant::now();
+            }
             terminal.draw(|frame| self.render(frame))?;
-            self.handle_crossterm_events()?;
         }
         Ok(())
     }
