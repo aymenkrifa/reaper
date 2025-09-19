@@ -79,6 +79,7 @@ pub struct App {
     sort_by: SortBy,
     sort_ascending: bool,
     loading_animation_frame: usize,
+    just_exited_search: bool,
 }
 
 impl Default for App {
@@ -100,6 +101,7 @@ impl Default for App {
             sort_by: SortBy::Port,
             sort_ascending: false, // Default to descending for better UX
             loading_animation_frame: 0,
+            just_exited_search: false,
         }
     }
 }
@@ -611,20 +613,63 @@ impl App {
 
         match self.mode {
             AppMode::ProcessList => match (key.modifiers, key.code) {
-                (_, KeyCode::Esc | KeyCode::Char('q'))
+                (_, KeyCode::Esc) => {
+                    if self.just_exited_search {
+                        // Ignore Esc if we just exited search mode
+                        self.just_exited_search = false;
+                    } else if !self.search_query.is_empty() {
+                        // Clear search if there's an active search
+                        self.search_query.clear();
+                        self.apply_filter_and_sort();
+                        self.selected_index = 0;
+                        self.list_state.select(if self.filtered_processes.is_empty() {
+                            None
+                        } else {
+                            Some(0)
+                        });
+                    } else {
+                        // Only quit if no search is active
+                        self.quit();
+                    }
+                }
+                (_, KeyCode::Char('q'))
                 | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-                (_, KeyCode::Char('r') | KeyCode::Char('R')) => self.refresh_processes(),
-                (_, KeyCode::Up) => self.select_previous(),
-                (_, KeyCode::Down) => self.select_next(),
-                (_, KeyCode::Enter) => self.enter_confirm_mode(),
-                (_, KeyCode::Char('/')) => self.enter_search_mode(),
-                (_, KeyCode::Char('s') | KeyCode::Char('S')) => self.cycle_sort(),
-                (_, KeyCode::Char('1')) => self.set_sort(SortBy::Port),
-                (_, KeyCode::Char('2')) => self.set_sort(SortBy::Pid),
-                (_, KeyCode::Char('3')) => self.set_sort(SortBy::User),
-                (_, KeyCode::Char('4')) => self.set_sort(SortBy::Command),
-                (_, KeyCode::Char('5')) => self.set_sort(SortBy::Memory),
-                (_, KeyCode::Char('6')) => self.set_sort(SortBy::StartTime),
+                (_, KeyCode::Char('r') | KeyCode::Char('R')) => {
+                    self.refresh_processes();
+                }
+                (_, KeyCode::Up) => {
+                    self.select_previous();
+                }
+                (_, KeyCode::Down) => {
+                    self.select_next();
+                }
+                (_, KeyCode::Enter) => {
+                    self.enter_confirm_mode();
+                }
+                (_, KeyCode::Char('/')) => {
+                    self.enter_search_mode();
+                }
+                (_, KeyCode::Char('s') | KeyCode::Char('S')) => {
+                    self.cycle_sort();
+                }
+                (_, KeyCode::Char('1')) => {
+                    self.set_sort(SortBy::Port);
+                }
+                (_, KeyCode::Char('2')) => {
+                    self.set_sort(SortBy::Pid);
+                }
+                (_, KeyCode::Char('3')) => {
+                    self.set_sort(SortBy::User);
+                }
+                (_, KeyCode::Char('4')) => {
+                    self.set_sort(SortBy::Command);
+                }
+                (_, KeyCode::Char('5')) => {
+                    self.set_sort(SortBy::Memory);
+                }
+                (_, KeyCode::Char('6')) => {
+                    self.set_sort(SortBy::StartTime);
+                }
                 (_, KeyCode::Backspace) if !self.search_query.is_empty() => {
                     self.search_query.pop();
                     self.apply_filter_and_sort();
