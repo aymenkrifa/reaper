@@ -141,7 +141,7 @@ impl Default for App {
 impl App {
     pub fn new() -> Self {
         let mut app = Self::default();
-        app.status_message = Some("Loading processes...".to_string());
+        app.status_message = Some("Initializing port scanner...".to_string());
         app
     }
 
@@ -261,7 +261,7 @@ impl App {
     fn render(&mut self, frame: &mut Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(5), Constraint::Min(0)])
+            .constraints([Constraint::Length(7), Constraint::Min(0)])
             .split(frame.area());
 
         self.render_header(frame, chunks[0]);
@@ -288,7 +288,7 @@ impl App {
         }
 
         if self.processes.is_empty() {
-            let text = "🌿 No processes are currently listening on any ports\n\nEverything is quiet and peaceful!\n\nPress 'r' to refresh or 'q' to quit.";
+            let text = "🌿 All quiet on the network front!\n\nNo active processes are listening on any ports.\n\nPress 'r' to refresh or 'q' to quit.";
             frame.render_widget(
                 Paragraph::new(text)
                     .style(Style::default().fg(Colors::TEXT_SECONDARY))
@@ -300,7 +300,7 @@ impl App {
         }
 
         if !self.search_query.is_empty() && self.filtered_processes.is_empty() {
-            let text = format!("🔍 Nothing found for \"{}\"\n\nTry a different search term or press Esc to clear the search.", self.search_query);
+            let text = format!("🔍 Nothing found for \"{}\" - Try a different search term or press Esc to clear the search.", self.search_query);
             frame.render_widget(
                 Paragraph::new(text)
                     .style(Style::default().fg(Colors::TEXT_SECONDARY))
@@ -493,12 +493,12 @@ impl App {
 
     fn render_header(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         let title_text = "💀 Reaper";
-        let desc_text = "A tiny program for viewing + killing ports";
+        let desc_text = "A simple port management & process monitoring";
         let process_count = self.filtered_processes.len();
         let total_count = self.processes.len();
         
         let info_text = if process_count == 0 && total_count == 0 {
-            "Here's what's running...".to_string()
+            "Scanning active ports...".to_string()
         } else if process_count != total_count {
             format!("{}/{} process{} ", 
                 process_count, total_count, 
@@ -556,20 +556,24 @@ impl App {
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(1),
+                Constraint::Length(1),
             ])
             .split(area);
 
         frame.render_widget(
-            Paragraph::new(title_text)
-                .style(Style::default().fg(Colors::ACCENT).bold())
+            Paragraph::new(vec![
+                ratatui::text::Line::from(vec![
+                    ratatui::text::Span::styled(title_text, Style::default().fg(Colors::ACCENT).bold()),
+                    ratatui::text::Span::styled(" • ", Style::default().fg(Colors::TEXT_TERTIARY)),
+                    ratatui::text::Span::styled(desc_text, Style::default().fg(Colors::TEXT_SECONDARY).bold()),
+                ])
+            ])
                 .alignment(Alignment::Left),
             header_layout[0],
         );
 
         frame.render_widget(
-            Paragraph::new(desc_text)
-                .style(Style::default().fg(Colors::TEXT_SECONDARY))
-                .alignment(Alignment::Left),
+            Paragraph::new(""),
             header_layout[1],
         );
 
@@ -752,7 +756,6 @@ impl App {
                             Some(0)
                         });
                     } else {
-                        // Only quit if no search is active
                         self.quit();
                     }
                 }
@@ -921,7 +924,7 @@ impl App {
             self.sort_ascending = !self.sort_ascending;
         } else {
             self.sort_by = sort_by;
-            self.sort_ascending = false; // Default to descending for new sort
+            self.sort_ascending = false;
         }
         self.apply_filter_and_sort();
     }
