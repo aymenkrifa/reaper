@@ -56,7 +56,7 @@ impl Default for App {
 impl App {
     pub fn new() -> Self {
         let mut app = Self::default();
-        app.refresh_processes();
+        app.status_message = Some("Loading processes...".to_string());
         app
     }
 
@@ -85,6 +85,11 @@ impl App {
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         use std::time::{Duration, Instant};
         self.running = true;
+        
+        terminal.draw(|frame| self.render(frame))?;
+        
+        self.refresh_processes();
+        
         let refresh_interval = Duration::from_secs(1);
         let mut last_refresh = Instant::now();
         while self.running {
@@ -120,12 +125,23 @@ impl App {
             return;
         }
 
+        if self.processes.is_empty() && self.status_message.is_some() {
+            let text = self.status_message.as_ref().unwrap();
+            frame.render_widget(
+                Paragraph::new(format!("{}\n\nPlease wait...", text))
+                    .block(Block::bordered()
+                        .border_style(Style::default().fg(Color::Rgb(135, 75, 253))))
+                    .centered(),
+                chunks[1],
+            );
+            return;
+        }
+
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(0), Constraint::Length(3)])
             .split(chunks[1]);
 
-        // Create list items in gruyere style: "Port :8080 (1234)" as title, "User: john, Command: node" as description
         let list_items: Vec<ListItem> = self
             .processes
             .iter()
