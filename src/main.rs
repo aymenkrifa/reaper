@@ -10,7 +10,7 @@ use ratatui::{
 mod lsof;
 
 fn extract_port(name: &str) -> u32 {
-    if let Some(port_part) = name.split(':').last() {
+    if let Some(port_part) = name.rsplit(':').next() {
         port_part
             .replace("(LISTEN)", "")
             .trim()
@@ -144,9 +144,10 @@ impl Default for App {
 
 impl App {
     pub fn new() -> Self {
-        let mut app = Self::default();
-        app.status_message = Some("Initializing port scanner...".to_string());
-        app
+        Self {
+            status_message: Some("Initializing port scanner...".to_string()),
+            ..Default::default()
+        }
     }
 
     pub fn refresh_processes(&mut self) {
@@ -340,7 +341,7 @@ impl App {
             .iter()
             .enumerate()
             .map(|(idx, process)| {
-                let port = if let Some(port_part) = process.name.split(':').last() {
+                let port = if let Some(port_part) = process.name.rsplit(':').next() {
                     port_part.replace("(LISTEN)", "").trim().to_string()
                 } else {
                     process.name.clone()
@@ -464,7 +465,7 @@ impl App {
 
                     spans.push(ratatui::text::Span::styled(" • ", base_details_style));
                     spans.extend(highlight_matching_text(
-                        &protocol,
+                        protocol,
                         &self.search_query,
                         base_details_style,
                     ));
@@ -722,7 +723,7 @@ impl App {
 
             frame.render_widget(Clear, popup_area);
 
-            let port = if let Some(port_part) = selected_process.name.split(':').last() {
+            let port = if let Some(port_part) = selected_process.name.rsplit(':').next() {
                 port_part.replace("(LISTEN)", "").trim().to_string()
             } else {
                 selected_process.name.clone()
