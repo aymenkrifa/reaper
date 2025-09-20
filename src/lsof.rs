@@ -71,20 +71,17 @@ fn get_process_info(pid: &str) -> (String, f64, Option<SystemTime>) {
 fn get_protocol_for_pid(pid: &str) -> String {
     let output = Command::new("netstat").arg("-tlnp").output();
 
-    match output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if line.contains(pid) {
-                    if line.starts_with("tcp") {
-                        return "TCP".to_string();
-                    } else if line.starts_with("udp") {
-                        return "UDP".to_string();
-                    }
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains(pid) {
+                if line.starts_with("tcp") {
+                    return "TCP".to_string();
+                } else if line.starts_with("udp") {
+                    return "UDP".to_string();
                 }
             }
         }
-        Err(_) => {}
     }
     "TCP".to_string()
 }
@@ -97,12 +94,11 @@ fn get_memory_usage(pid: &str) -> f64 {
         .arg(pid)
         .output();
 
-    match output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.trim().parse::<f64>().unwrap_or(0.0) / 1024.0
-        }
-        Err(_) => 0.0,
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        stdout.trim().parse::<f64>().unwrap_or(0.0) / 1024.0
+    } else {
+        0.0
     }
 }
 
