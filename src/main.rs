@@ -575,7 +575,24 @@ impl App {
             )
         };
 
-        let info_widget = if !self.search_query.is_empty() {
+        let info_widget = if self.mode == AppMode::Search {
+            Paragraph::new(vec![ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(info_text, Style::default().fg(Colors::TEXT_TERTIARY)),
+                ratatui::text::Span::styled(
+                    " [searching: ",
+                    Style::default().fg(Colors::TEXT_TERTIARY),
+                ),
+                ratatui::text::Span::styled(
+                    if self.search_query.is_empty() {
+                        "_"
+                    } else {
+                        &self.search_query
+                    },
+                    Style::default().fg(Colors::ACCENT).bold(),
+                ),
+                ratatui::text::Span::styled("]", Style::default().fg(Colors::TEXT_TERTIARY)),
+            ])])
+        } else if !self.search_query.is_empty() {
             Paragraph::new(vec![ratatui::text::Line::from(vec![
                 ratatui::text::Span::styled(info_text, Style::default().fg(Colors::TEXT_TERTIARY)),
                 ratatui::text::Span::styled(
@@ -587,16 +604,6 @@ impl App {
                     Style::default().fg(Colors::ACCENT).bold(),
                 ),
                 ratatui::text::Span::styled("\")", Style::default().fg(Colors::TEXT_TERTIARY)),
-            ])])
-        } else if self.mode == AppMode::Search {
-            Paragraph::new(vec![ratatui::text::Line::from(vec![
-                ratatui::text::Span::styled(info_text, Style::default().fg(Colors::TEXT_TERTIARY)),
-                ratatui::text::Span::styled(
-                    " [searching: ",
-                    Style::default().fg(Colors::TEXT_TERTIARY),
-                ),
-                ratatui::text::Span::styled("_", Style::default().fg(Colors::ACCENT).bold()),
-                ratatui::text::Span::styled("]", Style::default().fg(Colors::TEXT_TERTIARY)),
             ])])
         } else {
             Paragraph::new(info_text).style(Style::default().fg(Colors::TEXT_TERTIARY))
