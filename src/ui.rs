@@ -66,6 +66,7 @@ fn sort_color(sort_by: &SortBy) -> Color {
         SortBy::Command => Color::Rgb(155, 89, 182),
         SortBy::Memory => Color::Rgb(231, 76, 60),
         SortBy::StartTime => Color::Rgb(230, 126, 34),
+        SortBy::Protocol => Color::Rgb(0, 200, 220),
     }
 }
 
@@ -188,7 +189,7 @@ impl App {
             header_cell("USER", SortBy::User),
             header_cell("MEM", SortBy::Memory),
             header_cell("UPTIME", SortBy::StartTime),
-            Cell::from("PROTO").style(base),
+            header_cell("PROTO", SortBy::Protocol),
             header_cell("PID", SortBy::Pid),
         ])
         .bottom_margin(1)
@@ -220,20 +221,6 @@ impl App {
             }
         };
 
-        // Protocol has no sort key; style it like a non-active column.
-        let proto_cell = {
-            let style = if killable { base } else { dim };
-            if self.search_query.is_empty() {
-                Cell::from(Line::from(Span::styled(p.protocol.to_string(), style)))
-            } else {
-                Cell::from(Line::from(highlight_matching_text(
-                    p.protocol,
-                    &self.search_query,
-                    style,
-                )))
-            }
-        };
-
         let uptime = if p.start_time.is_some() {
             p.get_relative_time()
         } else {
@@ -251,7 +238,7 @@ impl App {
             cell(p.user.clone(), SortBy::User),
             cell(memory, SortBy::Memory),
             cell(uptime, SortBy::StartTime),
-            proto_cell,
+            cell(p.protocol.to_string(), SortBy::Protocol),
             cell(p.pid.clone(), SortBy::Pid),
         ])
     }

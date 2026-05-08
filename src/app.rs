@@ -19,6 +19,7 @@ pub(crate) enum SortBy {
     Command,
     Memory,
     StartTime,
+    Protocol,
 }
 
 #[derive(Debug)]
@@ -141,6 +142,7 @@ impl App {
                     (None, Some(_)) => std::cmp::Ordering::Greater,
                     (None, None) => std::cmp::Ordering::Equal,
                 },
+                SortBy::Protocol => a.protocol.cmp(b.protocol),
             };
 
             if self.sort_ascending {
@@ -248,8 +250,8 @@ impl App {
                 (_, KeyCode::Char('a') | KeyCode::Char('A')) => {
                     self.toggle_restricted();
                 }
-                // 1-6 mirror the visual column order: PORT, COMMAND, USER,
-                // MEM, UPTIME, PID.
+                // 1-7 mirror the visual column order: PORT, COMMAND, USER,
+                // MEM, UPTIME, PROTO, PID.
                 (_, KeyCode::Char('1')) => {
                     self.set_sort(SortBy::Port);
                 }
@@ -266,6 +268,9 @@ impl App {
                     self.set_sort(SortBy::StartTime);
                 }
                 (_, KeyCode::Char('6')) => {
+                    self.set_sort(SortBy::Protocol);
+                }
+                (_, KeyCode::Char('7')) => {
                     self.set_sort(SortBy::Pid);
                 }
                 (_, KeyCode::Backspace) if !self.search_query.is_empty() => {
@@ -412,14 +417,15 @@ impl App {
     }
 
     fn cycle_sort(&mut self) {
-        // Cycle follows the visual column order: PORT → COMMAND → USER →
-        // MEM → UPTIME → PID. PROTO has no sort key, so it's skipped.
+        // Cycle follows the visual column order:
+        // PORT → COMMAND → USER → MEM → UPTIME → PROTO → PID → PORT.
         self.sort_by = match self.sort_by {
             SortBy::Port => SortBy::Command,
             SortBy::Command => SortBy::User,
             SortBy::User => SortBy::Memory,
             SortBy::Memory => SortBy::StartTime,
-            SortBy::StartTime => SortBy::Pid,
+            SortBy::StartTime => SortBy::Protocol,
+            SortBy::Protocol => SortBy::Pid,
             SortBy::Pid => SortBy::Port,
         };
         self.apply_filter_and_sort();
