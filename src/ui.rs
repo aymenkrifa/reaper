@@ -266,15 +266,27 @@ impl App {
         let desc_text = "A simple port management & process monitoring";
         let process_count = self.filtered_processes.len();
         let total_count = self.processes.len();
+        let hidden = self.restricted_hidden_count();
 
         let info_text = if process_count == 0 && total_count == 0 {
             "Scanning active ports...".to_string()
         } else if process_count != total_count {
-            format!(
+            let mut s = format!(
                 "{}/{} process{} ",
                 process_count,
                 total_count,
                 if total_count == 1 { "" } else { "es" }
+            );
+            if hidden > 0 {
+                s.push_str(&format!("({} restricted hidden — press 'a') ", hidden));
+            }
+            s
+        } else if hidden > 0 {
+            format!(
+                "{} process{} ({} restricted hidden — press 'a')",
+                process_count,
+                if process_count == 1 { "" } else { "es" },
+                hidden
             )
         } else {
             format!(
@@ -381,7 +393,7 @@ impl App {
         let help_text = match self.mode {
             AppMode::ProcessList => {
                 if self.search_query.is_empty() {
-                    "↑/↓: Navigate • Enter: Select • /: Search • s: Sort • r: Refresh • q/Esc: Quit"
+                    "↑/↓: Navigate • Enter: Select • /: Search • s: Sort • a: Show restricted • r: Refresh • q/Esc: Quit"
                 } else {
                     &format!(
                         "Search: \"{}\" • Esc: Clear search • ↑/↓: Navigate • Enter: Select",

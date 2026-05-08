@@ -37,6 +37,7 @@ pub struct App {
     pub(crate) sort_by: SortBy,
     pub(crate) sort_ascending: bool,
     pub(crate) loading_animation_frame: usize,
+    pub(crate) show_restricted: bool,
 }
 
 impl Default for App {
@@ -59,6 +60,7 @@ impl Default for App {
             sort_by: SortBy::Port,
             sort_ascending: false,
             loading_animation_frame: 0,
+            show_restricted: false,
         }
     }
 }
@@ -97,22 +99,27 @@ impl App {
     }
 
     pub(crate) fn apply_filter_and_sort(&mut self) {
-        self.filtered_processes = if self.search_query.is_empty() {
-            self.processes.clone()
-        } else {
-            let query = self.search_query.to_lowercase();
-            self.processes
-                .iter()
-                .filter(|p| {
-                    p.command.to_lowercase().contains(&query)
-                        || p.user.to_lowercase().contains(&query)
-                        || p.local_addr.to_lowercase().contains(&query)
-                        || p.port.to_string().contains(&query)
-                        || p.pid.contains(&query)
-                })
-                .cloned()
-                .collect()
-        };
+        let query = self.search_query.to_lowercase();
+        let has_query = !query.is_empty();
+
+        self.filtered_processes = self
+            .processes
+            .iter()
+            .filter(|p| {
+                if !self.show_restricted && !p.is_killable() {
+                    return false;
+                }
+                if !has_query {
+                    return true;
+                }
+                p.command.to_lowercase().contains(&query)
+                    || p.user.to_lowercase().contains(&query)
+                    || p.local_addr.to_lowercase().contains(&query)
+                    || p.port.to_string().contains(&query)
+                    || p.pid.contains(&query)
+            })
+            .cloned()
+            .collect();
 
         self.filtered_processes.sort_by(|a, b| {
             let comparison = match self.sort_by {
@@ -237,6 +244,9 @@ impl App {
                 }
                 (_, KeyCode::Char('s') | KeyCode::Char('S')) => {
                     self.cycle_sort();
+                }
+                (_, KeyCode::Char('a') | KeyCode::Char('A')) => {
+                    self.toggle_restricted();
                 }
                 (_, KeyCode::Char('1')) => {
                     self.set_sort(SortBy::Port);
@@ -377,6 +387,26 @@ impl App {
             } else {
                 Some(0)
             });
+    }
+
+    fn toggle_restricted(&mut self) {
+        self.show_restricted = !self.show_restricted;
+        self.apply_filter_and_sort();
+        self.selected_index = 0;
+        self.list_state
+            .select(if self.filtered_processes.is_empty() {
+                None
+            } else {
+                Some(0)
+            });
+    }
+
+    pub(crate) fn restricted_hidden_count(&self) -> usize {
+        if self.show_restricted {
+            0
+        } else {
+            self.processes.iter().filter(|p| !p.is_killable()).count()
+        }
     }
 
     fn cycle_sort(&mut self) {
