@@ -1,10 +1,10 @@
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
-    DefaultTerminal,
     style::{Style, Stylize},
     text::{Line, Span},
     widgets::TableState,
+    DefaultTerminal,
 };
 
 use crate::lsof::{self, KillOutcome, LsofEntry};
@@ -74,11 +74,7 @@ impl Default for App {
 /// table-column hues, so the eye picks each piece out instantly.
 /// `verb_color` carries the outcome semantics (green=killed,
 /// orange=force-killed, danger handling lives in error_message).
-fn kill_status_line(
-    verb: &str,
-    verb_color: ratatui::style::Color,
-    p: &LsofEntry,
-) -> Line<'static> {
+fn kill_status_line(verb: &str, verb_color: ratatui::style::Color, p: &LsofEntry) -> Line<'static> {
     let dim = Style::default().fg(Colors::TEXT_TERTIARY);
     Line::from(vec![
         Span::styled(format!("{} ", verb), Style::default().fg(verb_color).bold()),
@@ -382,19 +378,13 @@ impl App {
         if !selected.is_killable() {
             let dim = Style::default().fg(Colors::TEXT_TERTIARY);
             self.status_message = Some(Line::from(vec![
-                Span::styled(
-                    "Cannot kill ",
-                    Style::default().fg(Colors::DANGER).bold(),
-                ),
+                Span::styled("Cannot kill ", Style::default().fg(Colors::DANGER).bold()),
                 Span::styled(
                     format!(":{}", selected.port),
                     Style::default().fg(Colors::PORT_HUE).bold(),
                 ),
                 Span::styled(" — owned by ", dim),
-                Span::styled(
-                    selected.user.clone(),
-                    Style::default().fg(Colors::USER_HUE),
-                ),
+                Span::styled(selected.user.clone(), Style::default().fg(Colors::USER_HUE)),
                 Span::styled(", re-run with sudo", dim),
             ]));
             return;
@@ -487,8 +477,7 @@ impl App {
 
         match lsof::kill_process_verified(&pid) {
             Ok(KillOutcome::Terminated) => {
-                self.status_message =
-                    Some(kill_status_line("Killed", Colors::SUCCESS, &process));
+                self.status_message = Some(kill_status_line("Killed", Colors::SUCCESS, &process));
                 self.error_message = None;
             }
             Ok(KillOutcome::ForceKilled) => {
@@ -508,8 +497,7 @@ impl App {
                 self.status_message = None;
             }
             Err(e) => {
-                self.error_message =
-                    Some(format!("Failed to signal {} ({}): {}", command, pid, e));
+                self.error_message = Some(format!("Failed to signal {} ({}): {}", command, pid, e));
                 self.status_message = None;
             }
         }
