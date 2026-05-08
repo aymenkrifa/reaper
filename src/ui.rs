@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, Clear, List, ListItem, Paragraph},
+    widgets::{Block, Cell, Clear, Paragraph, Row, Table},
 };
 
 use crate::app::{App, AppMode, SortBy};
@@ -66,33 +66,12 @@ fn sort_color(sort_by: &SortBy) -> Color {
     }
 }
 
-fn sort_label(sort_by: &SortBy) -> &'static str {
-    match sort_by {
-        SortBy::Port => "port",
-        SortBy::Pid => "pid",
-        SortBy::User => "user",
-        SortBy::Command => "command",
-        SortBy::Memory => "memory",
-        SortBy::StartTime => "start time",
-    }
-}
-
-fn sort_marker(sort_by: &SortBy) -> &'static str {
-    match sort_by {
-        SortBy::Port => "🟡",
-        SortBy::Pid => "🔵",
-        SortBy::User => "🟢",
-        SortBy::Command => "🟣",
-        SortBy::Memory => "🔴",
-        SortBy::StartTime => "🟠",
-    }
-}
 
 impl App {
     pub(crate) fn render(&mut self, frame: &mut Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(7), Constraint::Min(0)])
+            .constraints([Constraint::Length(5), Constraint::Min(0)])
             .split(frame.area());
 
         self.render_header(frame, chunks[0]);
@@ -150,12 +129,21 @@ impl App {
             .constraints([Constraint::Min(0), Constraint::Length(4)])
             .split(chunks[1]);
 
-        let list_items: Vec<ListItem> = self
+        let rows: Vec<Row> = self
             .filtered_processes
             .iter()
-            .enumerate()
-            .map(|(idx, p)| self.build_list_item(p, idx))
+            .map(|p| self.build_row(p))
             .collect();
+
+        let widths = [
+            Constraint::Length(7),  // PORT
+            Constraint::Length(5),  // PROTO
+            Constraint::Length(7),  // PID
+            Constraint::Length(12), // USER
+            Constraint::Min(20),    // COMMAND
+            Constraint::Length(9),  // MEM
+            Constraint::Length(8),  // UPTIME
+        ];
 
         let highlight_symbol = if self.mode == AppMode::Search {
             "🔍 "
@@ -163,11 +151,12 @@ impl App {
             "▶ "
         };
 
-        let list = List::new(list_items)
-            .highlight_style(Style::default().fg(Colors::ACCENT))
+        let table = Table::new(rows, widths)
+            .header(self.build_header_row())
+            .row_highlight_style(Style::default().fg(Colors::ACCENT).bold())
             .highlight_symbol(highlight_symbol);
 
-        frame.render_stateful_widget(list, main_chunks[0], &mut self.list_state);
+        frame.render_stateful_widget(table, main_chunks[0], &mut self.table_state);
 
         self.render_status_and_help(frame, main_chunks[1]);
 
@@ -176,89 +165,91 @@ impl App {
         }
     }
 
-    fn build_list_item(&self, process: &LsofEntry, idx: usize) -> ListItem<'static> {
-        let port = process.port.to_string();
-        let protocol = process.get_protocol().to_string();
-        let memory = process.get_memory_display();
-        let uptime = process.get_relative_time();
-        let is_selected = self.selected_index == idx;
+    fn build_header_row(&self) -> Row<'static> {
+        let base = Style::default().fg(Colors::TEXT_TERTIARY).bold();
+        let active = Style::default().fg(sort_color(&self.sort_by)).bold();
+        let arrow = if self.sort_ascending { "↑" } else { "↓" };
 
-        let (title_base, details_base, meta_base) = if is_selected {
-            (
-                Style::default().fg(Colors::ACCENT).bold(),
-                Style::default().fg(Colors::TEXT_PRIMARY),
-                Style::default().fg(Colors::TEXT_TERTIARY),
-            )
-        } else {
-            (
-                Style::default().fg(Colors::TEXT_PRIMARY),
-                Style::default().fg(Colors::TEXT_SECONDARY),
-                Style::default().fg(Colors::TEXT_MUTED),
-            )
+        let header_cell = |label: &'static str, this: SortBy| -> Cell<'static> {
+            if self.sort_by == this {
+                Cell::from(format!("{} {}", label, arrow)).style(active)
+            } else {
+                Cell::from(label).style(base)
+            }
         };
 
+        Row::new(vec![
+            header_cell("PORT", SortBy::Port),
+            Cell::from("PROTO").style(base),
+            header_cell("PID", SortBy::Pid),
+            header_cell("USER", SortBy::User),
+            header_cell("COMMAND", SortBy::Command),
+            header_cell("MEM", SortBy::Memory),
+            header_cell("UPTIME", SortBy::StartTime),
+        ])
+        .bottom_margin(1)
+    }
+
+    fn build_row(&self, p: &LsofEntry) -> Row<'static> {
+        let base = Style::default().fg(Colors::TEXT_PRIMARY);
+        let dim = Style::default().fg(Colors::TEXT_TERTIARY);
         let sort_style = Style::default().fg(sort_color(&self.sort_by)).bold();
+        let killable = p.is_killable();
 
-        // Either highlight search matches per-field, or highlight the active sort
-        // column. Helper closure picks the right style for a given field.
-        let field = |val: &str, this: SortBy| -> Vec<Span<'static>> {
-            if !self.search_query.is_empty() {
-                let style = if self.sort_by == this {
-                    sort_style
-                } else {
-                    title_base
-                };
-                highlight_matching_text(val, &self.search_query, style)
-            } else if self.sort_by == this {
-                vec![Span::styled(val.to_string(), sort_style)]
+        // Per-cell styling: search match wins, then active sort column, then the
+        // base/dim style depending on whether the row is actionable.
+        let cell = |val: String, this: SortBy| -> Cell<'static> {
+            let row_default = if killable { base } else { dim };
+            let column_default = if self.sort_by == this {
+                sort_style
             } else {
-                vec![Span::styled(val.to_string(), title_base)]
+                row_default
+            };
+            if self.search_query.is_empty() {
+                Cell::from(Line::from(Span::styled(val, column_default)))
+            } else {
+                Cell::from(Line::from(highlight_matching_text(
+                    &val,
+                    &self.search_query,
+                    column_default,
+                )))
             }
         };
 
-        let detail_field = |val: &str, this: SortBy| -> Vec<Span<'static>> {
-            if !self.search_query.is_empty() {
-                let style = if self.sort_by == this {
-                    sort_style
-                } else {
-                    details_base
-                };
-                highlight_matching_text(val, &self.search_query, style)
-            } else if self.sort_by == this {
-                vec![Span::styled(val.to_string(), sort_style)]
+        // Protocol has no sort key; style it like a non-active column.
+        let proto_cell = {
+            let style = if killable { base } else { dim };
+            if self.search_query.is_empty() {
+                Cell::from(Line::from(Span::styled(p.protocol.to_string(), style)))
             } else {
-                vec![Span::styled(val.to_string(), details_base)]
+                Cell::from(Line::from(highlight_matching_text(
+                    p.protocol,
+                    &self.search_query,
+                    style,
+                )))
             }
         };
 
-        let mut title = vec![Span::styled(":", title_base)];
-        title.extend(field(&port, SortBy::Port));
-        title.push(Span::styled(" • ", title_base));
-        title.extend(field(&process.command, SortBy::Command));
-        title.push(Span::styled(" • ", title_base));
-        title.extend(field(&memory, SortBy::Memory));
-
-        let mut details = vec![Span::styled("↳ ", details_base)];
-        details.extend(detail_field(&process.user, SortBy::User));
-        details.push(Span::styled(" • ", details_base));
-        details.extend(highlight_matching_text(
-            &protocol,
-            &self.search_query,
-            details_base,
-        ));
-        details.push(Span::styled(" • ", details_base));
-        details.extend(detail_field(&process.pid, SortBy::Pid));
-
-        let meta = if self.sort_by == SortBy::StartTime {
-            Line::from(vec![
-                Span::styled("  └ uptime: ", meta_base),
-                Span::styled(format!("{} ago", uptime), sort_style),
-            ])
+        let uptime = if p.start_time.is_some() {
+            p.get_relative_time()
         } else {
-            Line::from(format!("  └ uptime: {} ago", uptime)).style(meta_base)
+            "—".to_string()
+        };
+        let memory = if killable {
+            p.get_memory_display()
+        } else {
+            "—".to_string()
         };
 
-        ListItem::new(vec![Line::from(title), Line::from(details), meta, Line::from("")])
+        Row::new(vec![
+            cell(format!(":{}", p.port), SortBy::Port),
+            proto_cell,
+            cell(p.pid.clone(), SortBy::Pid),
+            cell(p.user.clone(), SortBy::User),
+            cell(p.command.clone(), SortBy::Command),
+            cell(memory, SortBy::Memory),
+            cell(uptime, SortBy::StartTime),
+        ])
     }
 
     fn render_header(&self, frame: &mut Frame, area: Rect) {
@@ -330,17 +321,9 @@ impl App {
             Paragraph::new(info_text).style(Style::default().fg(Colors::TEXT_TERTIARY))
         };
 
-        let sort_text = format!(
-            "sorted by {} {} {}",
-            sort_label(&self.sort_by),
-            if self.sort_ascending { "↑" } else { "↓" },
-            sort_marker(&self.sort_by)
-        );
-
         let header_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(1),
@@ -349,10 +332,10 @@ impl App {
             .split(area);
 
         frame.render_widget(
-            Paragraph::new(vec![ratatui::text::Line::from(vec![
-                ratatui::text::Span::styled(title_text, Style::default().fg(Colors::ACCENT).bold()),
-                ratatui::text::Span::styled(" • ", Style::default().fg(Colors::TEXT_TERTIARY)),
-                ratatui::text::Span::styled(
+            Paragraph::new(vec![Line::from(vec![
+                Span::styled(title_text, Style::default().fg(Colors::ACCENT).bold()),
+                Span::styled(" • ", Style::default().fg(Colors::TEXT_TERTIARY)),
+                Span::styled(
                     desc_text,
                     Style::default().fg(Colors::TEXT_SECONDARY).bold(),
                 ),
@@ -364,13 +347,6 @@ impl App {
         frame.render_widget(Paragraph::new(""), header_layout[1]);
 
         frame.render_widget(info_widget.alignment(Alignment::Left), header_layout[2]);
-
-        frame.render_widget(
-            Paragraph::new(sort_text)
-                .style(Style::default().fg(Colors::TEXT_MUTED))
-                .alignment(Alignment::Left),
-            header_layout[3],
-        );
     }
 
     fn render_status_and_help(&self, frame: &mut Frame, area: Rect) {

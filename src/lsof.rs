@@ -29,10 +29,6 @@ impl LsofEntry {
         }
     }
 
-    pub fn get_protocol(&self) -> &str {
-        self.protocol
-    }
-
     pub fn get_memory_display(&self) -> String {
         if self.memory_mb < 1.0 {
             format!("{:.1}KB", self.memory_mb * 1024.0)

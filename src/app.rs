@@ -1,6 +1,6 @@
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{DefaultTerminal, widgets::ListState};
+use ratatui::{DefaultTerminal, widgets::TableState};
 
 use crate::lsof::{self, KillOutcome};
 
@@ -31,7 +31,7 @@ pub struct App {
     pub(crate) loading_message: Option<String>,
     pub(crate) mode: AppMode,
     pub(crate) selected_index: usize,
-    pub(crate) list_state: ListState,
+    pub(crate) table_state: TableState,
     pub(crate) confirm_button_selected: bool,
     pub(crate) search_query: String,
     pub(crate) sort_by: SortBy,
@@ -42,8 +42,8 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        let mut list_state = ListState::default();
-        list_state.select(Some(0));
+        let mut table_state = TableState::default();
+        table_state.select(Some(0));
 
         Self {
             running: false,
@@ -54,7 +54,7 @@ impl Default for App {
             loading_message: None,
             mode: AppMode::ProcessList,
             selected_index: 0,
-            list_state,
+            table_state,
             confirm_button_selected: true,
             search_query: String::new(),
             sort_by: SortBy::Port,
@@ -90,7 +90,7 @@ impl App {
         if self.selected_index >= self.filtered_processes.len() {
             self.selected_index = 0;
         }
-        self.list_state
+        self.table_state
             .select(if self.filtered_processes.is_empty() {
                 None
             } else {
@@ -215,7 +215,7 @@ impl App {
                         self.search_query.clear();
                         self.apply_filter_and_sort();
                         self.selected_index = 0;
-                        self.list_state
+                        self.table_state
                             .select(if self.filtered_processes.is_empty() {
                                 None
                             } else {
@@ -270,7 +270,7 @@ impl App {
                     self.search_query.pop();
                     self.apply_filter_and_sort();
                     self.selected_index = 0;
-                    self.list_state
+                    self.table_state
                         .select(if self.filtered_processes.is_empty() {
                             None
                         } else {
@@ -300,7 +300,7 @@ impl App {
                     self.search_query.pop();
                     self.apply_filter_and_sort();
                     self.selected_index = 0;
-                    self.list_state
+                    self.table_state
                         .select(if self.filtered_processes.is_empty() {
                             None
                         } else {
@@ -311,7 +311,7 @@ impl App {
                     self.search_query.push(c);
                     self.apply_filter_and_sort();
                     self.selected_index = 0;
-                    self.list_state
+                    self.table_state
                         .select(if self.filtered_processes.is_empty() {
                             None
                         } else {
@@ -330,7 +330,7 @@ impl App {
             } else {
                 self.selected_index = self.filtered_processes.len() - 1;
             }
-            self.list_state.select(Some(self.selected_index));
+            self.table_state.select(Some(self.selected_index));
         }
     }
 
@@ -341,7 +341,7 @@ impl App {
             } else {
                 self.selected_index = 0;
             }
-            self.list_state.select(Some(self.selected_index));
+            self.table_state.select(Some(self.selected_index));
         }
     }
 
@@ -369,7 +369,7 @@ impl App {
         self.search_query.clear();
         self.apply_filter_and_sort();
         self.selected_index = 0;
-        self.list_state
+        self.table_state
             .select(if self.filtered_processes.is_empty() {
                 None
             } else {
@@ -381,7 +381,7 @@ impl App {
         self.mode = AppMode::ProcessList;
         self.apply_filter_and_sort();
         self.selected_index = 0;
-        self.list_state
+        self.table_state
             .select(if self.filtered_processes.is_empty() {
                 None
             } else {
@@ -393,7 +393,7 @@ impl App {
         self.show_restricted = !self.show_restricted;
         self.apply_filter_and_sort();
         self.selected_index = 0;
-        self.list_state
+        self.table_state
             .select(if self.filtered_processes.is_empty() {
                 None
             } else {
