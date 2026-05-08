@@ -248,23 +248,25 @@ impl App {
                 (_, KeyCode::Char('a') | KeyCode::Char('A')) => {
                     self.toggle_restricted();
                 }
+                // 1-6 mirror the visual column order: PORT, COMMAND, USER,
+                // MEM, UPTIME, PID.
                 (_, KeyCode::Char('1')) => {
                     self.set_sort(SortBy::Port);
                 }
                 (_, KeyCode::Char('2')) => {
-                    self.set_sort(SortBy::Pid);
+                    self.set_sort(SortBy::Command);
                 }
                 (_, KeyCode::Char('3')) => {
                     self.set_sort(SortBy::User);
                 }
                 (_, KeyCode::Char('4')) => {
-                    self.set_sort(SortBy::Command);
-                }
-                (_, KeyCode::Char('5')) => {
                     self.set_sort(SortBy::Memory);
                 }
-                (_, KeyCode::Char('6')) => {
+                (_, KeyCode::Char('5')) => {
                     self.set_sort(SortBy::StartTime);
+                }
+                (_, KeyCode::Char('6')) => {
+                    self.set_sort(SortBy::Pid);
                 }
                 (_, KeyCode::Backspace) if !self.search_query.is_empty() => {
                     self.search_query.pop();
@@ -410,13 +412,15 @@ impl App {
     }
 
     fn cycle_sort(&mut self) {
+        // Cycle follows the visual column order: PORT → COMMAND → USER →
+        // MEM → UPTIME → PID. PROTO has no sort key, so it's skipped.
         self.sort_by = match self.sort_by {
-            SortBy::Port => SortBy::Pid,
-            SortBy::Pid => SortBy::User,
-            SortBy::User => SortBy::Command,
-            SortBy::Command => SortBy::Memory,
+            SortBy::Port => SortBy::Command,
+            SortBy::Command => SortBy::User,
+            SortBy::User => SortBy::Memory,
             SortBy::Memory => SortBy::StartTime,
-            SortBy::StartTime => SortBy::Port,
+            SortBy::StartTime => SortBy::Pid,
+            SortBy::Pid => SortBy::Port,
         };
         self.apply_filter_and_sort();
     }

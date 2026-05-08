@@ -140,9 +140,9 @@ impl App {
 
         let widths = [
             Constraint::Length(7),  // PORT
-            Constraint::Min(20),    // COMMAND
-            Constraint::Length(12), // USER
-            Constraint::Length(9),  // MEM
+            Constraint::Length(20), // COMMAND
+            Constraint::Length(14), // USER
+            Constraint::Length(8),  // MEM
             Constraint::Length(8),  // UPTIME
             Constraint::Length(5),  // PROTO
             Constraint::Length(7),  // PID
@@ -157,7 +157,8 @@ impl App {
         let table = Table::new(rows, widths)
             .header(self.build_header_row())
             .row_highlight_style(Style::default().bg(Colors::SELECTED_BG).bold())
-            .highlight_symbol(highlight_symbol);
+            .highlight_symbol(highlight_symbol)
+            .column_spacing(2);
 
         frame.render_stateful_widget(table, main_chunks[0], &mut self.table_state);
 
