@@ -254,6 +254,36 @@ fn read_proc_stat(pid: &str, boot_secs: u64) -> (String, Option<SystemTime>) {
         .unwrap_or((String::new(), None))
 }
 
+/// Build a human-readable command string from /proc/<pid>/cmdline.
+///
+/// /proc/<pid>/cmdline is the raw argv with NUL separators. The first
+/// argument is the executable path; we basename it so the displayed
+/// string starts with the program name (`uvicorn ...`) rather than its
+/// full install path (`/home/user/.venv/bin/uvicorn ...`). Subsequent
+/// args are joined with spaces, which is what the user typed and what
+/// distinguishes one `python3` / `node` / `uvicorn` from another.
+pub(crate) fn parse_cmdline(raw: &[u8]) -> Option<String> {
+    if raw.is_empty() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(raw);
+    let parts: Vec<&str> = s.split('\0').filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let arg0 = parts[0].rsplit('/').next().unwrap_or(parts[0]);
+    if parts.len() == 1 {
+        Some(arg0.to_string())
+    } else {
+        Some(format!("{} {}", arg0, parts[1..].join(" ")))
+    }
+}
+
+fn read_proc_cmdline(pid: &str) -> Option<String> {
+    let raw = fs::read(format!("/proc/{}/cmdline", pid)).ok()?;
+    parse_cmdline(&raw)
+}
+
 fn boot_uptime_secs() -> u64 {
     fs::read_to_string("/proc/uptime")
         .ok()
@@ -295,7 +325,13 @@ pub fn get_listening_processes() -> Vec<LsofEntry> {
                         .and_then(|uid| passwd.get(&uid).cloned())
                         .or_else(|| uid_opt.map(|u| u.to_string()))
                         .unwrap_or_else(|| "?".to_string());
-                    let (command, start_time) = read_proc_stat(pid, boot);
+                    let (comm, start_time) = read_proc_stat(pid, boot);
+                    // Prefer the full argv from /proc/<pid>/cmdline so we can
+                    // distinguish two `python3` / `uvicorn` listeners by the
+                    // script or app they're running. Falls back to the
+                    // 15-char comm name when cmdline is empty (kernel threads,
+                    // zombies, races).
+                    let command = read_proc_cmdline(pid).unwrap_or(comm);
                     PidMeta {
                         command,
                         user,
@@ -548,6 +584,35 @@ www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
         assert_eq!(format_duration(Duration::from_secs(86_399)), "23h");
         assert_eq!(format_duration(Duration::from_secs(86_400)), "1d");
         assert_eq!(format_duration(Duration::from_secs(86_400 * 30)), "30d");
+    }
+
+    #[test]
+    fn parse_cmdline_basenames_arg0_and_joins_args() {
+        // /proc/<pid>/cmdline: NUL-separated argv, often trailing NUL.
+        let raw = b"/usr/bin/python3\0/home/u/.venv/bin/uvicorn\0app.main:app\0--port\0:8000\0";
+        assert_eq!(
+            parse_cmdline(raw).as_deref(),
+            Some("python3 /home/u/.venv/bin/uvicorn app.main:app --port :8000")
+        );
+    }
+
+    #[test]
+    fn parse_cmdline_single_arg_no_path() {
+        let raw = b"sshd\0";
+        assert_eq!(parse_cmdline(raw).as_deref(), Some("sshd"));
+    }
+
+    #[test]
+    fn parse_cmdline_with_full_path_only() {
+        let raw = b"/usr/sbin/nginx\0";
+        assert_eq!(parse_cmdline(raw).as_deref(), Some("nginx"));
+    }
+
+    #[test]
+    fn parse_cmdline_empty_returns_none() {
+        // Kernel threads and zombies have empty cmdline.
+        assert_eq!(parse_cmdline(b""), None);
+        assert_eq!(parse_cmdline(b"\0\0"), None);
     }
 
     #[test]

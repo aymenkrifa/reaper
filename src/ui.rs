@@ -141,7 +141,7 @@ impl App {
 
         let widths = [
             Constraint::Length(7),  // PORT
-            Constraint::Length(20), // COMMAND
+            Constraint::Length(40), // COMMAND (full cmdline, truncates if longer)
             Constraint::Length(14), // USER
             Constraint::Length(8),  // MEM
             Constraint::Length(8),  // UPTIME
