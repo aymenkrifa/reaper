@@ -1,3 +1,6 @@
+#[cfg(not(target_os = "linux"))]
+compile_error!("reaper currently only supports Linux (it reads /proc directly)");
+
 mod app;
 mod lsof;
 mod ui;
