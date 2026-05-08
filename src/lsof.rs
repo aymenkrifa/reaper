@@ -70,6 +70,7 @@ struct Listener {
     local_addr: String,
     port: u16,
     inode: u64,
+    uid: u32,
     proto: &'static str,
 }
 
@@ -84,12 +85,17 @@ fn parse_proc_net_tcp(content: &str, is_v6: bool) -> Vec<Listener> {
         if state != TCP_LISTEN {
             continue;
         }
-        // tx_queue:rx_queue and tr:tm->when are colon-joined into single
-        // tokens, so only 5 fields sit between state and inode:
-        // tx_queue:rx_queue, tr:tm->when, retrnsmt, uid, timeout.
-        for _ in 0..5 {
-            it.next();
-        }
+        // tx_queue:rx_queue and tr:tm->when are colon-joined single tokens.
+        // Layout after state: tx_queue:rx_queue, tr:tm->when, retrnsmt, uid,
+        // timeout, inode.
+        it.next(); // tx_queue:rx_queue
+        it.next(); // tr:tm->when
+        it.next(); // retrnsmt
+        let Some(uid_str) = it.next() else { continue };
+        let Ok(uid) = uid_str.parse::<u32>() else {
+            continue;
+        };
+        it.next(); // timeout
         let Some(inode_str) = it.next() else { continue };
         let Ok(inode) = inode_str.parse::<u64>() else {
             continue;
@@ -108,6 +114,7 @@ fn parse_proc_net_tcp(content: &str, is_v6: bool) -> Vec<Listener> {
             local_addr,
             port,
             inode,
+            uid,
             proto: if is_v6 { "TCP6" } else { "TCP" },
         });
     }
@@ -307,12 +314,17 @@ pub fn get_listening_processes() -> Vec<LsofEntry> {
                     meta.start_time,
                 )
             }
-            None => (
-                "(unknown)".to_string(),
-                "?".to_string(),
-                0.0,
-                None,
-            ),
+            None => {
+                // /proc/<pid>/fd was unreadable for every PID we tried (typical
+                // when reaper runs without sudo). The /proc/net/tcp row itself
+                // still tells us who owns the socket — show that, even though
+                // we can't resolve the actual command name.
+                let user = passwd
+                    .get(&l.uid)
+                    .cloned()
+                    .unwrap_or_else(|| l.uid.to_string());
+                ("(restricted)".to_string(), user, 0.0, None)
+            }
         };
 
         entries.push(LsofEntry {
@@ -453,10 +465,12 @@ mod tests {
         assert_eq!(listeners[0].port, 8080);
         assert_eq!(listeners[0].local_addr, "127.0.0.1");
         assert_eq!(listeners[0].inode, 318513);
+        assert_eq!(listeners[0].uid, 1000);
         assert_eq!(listeners[0].proto, "TCP");
         assert_eq!(listeners[1].port, 443);
         assert_eq!(listeners[1].local_addr, "*");
         assert_eq!(listeners[1].inode, 24707);
+        assert_eq!(listeners[1].uid, 0);
     }
 
     #[test]

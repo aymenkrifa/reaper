@@ -341,8 +341,8 @@ impl App {
         };
         if !selected.is_killable() {
             self.status_message = Some(format!(
-                "Cannot kill :{} — PID unknown (try running with sudo)",
-                selected.port
+                "Cannot kill :{} — owned by {}, re-run with sudo",
+                selected.port, selected.user
             ));
             return;
         }
