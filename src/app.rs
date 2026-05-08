@@ -2,7 +2,7 @@ use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, widgets::ListState};
 
-use crate::lsof;
+use crate::lsof::{self, KillOutcome};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum AppMode {
@@ -28,6 +28,7 @@ pub struct App {
     pub(crate) filtered_processes: Vec<lsof::LsofEntry>,
     pub(crate) error_message: Option<String>,
     pub(crate) status_message: Option<String>,
+    pub(crate) loading_message: Option<String>,
     pub(crate) mode: AppMode,
     pub(crate) selected_index: usize,
     pub(crate) list_state: ListState,
@@ -49,6 +50,7 @@ impl Default for App {
             filtered_processes: Vec::new(),
             error_message: None,
             status_message: None,
+            loading_message: None,
             mode: AppMode::ProcessList,
             selected_index: 0,
             list_state,
@@ -61,71 +63,52 @@ impl Default for App {
     }
 }
 
-pub(crate) fn extract_port(name: &str) -> u32 {
-    if let Some(port_part) = name.rsplit(':').next() {
-        port_part
-            .replace("(LISTEN)", "")
-            .trim()
-            .parse()
-            .unwrap_or(0)
-    } else {
-        0
-    }
-}
-
 impl App {
     pub fn new() -> Self {
         Self {
-            status_message: Some("Initializing port scanner...".to_string()),
+            loading_message: Some("Initializing port scanner...".to_string()),
             ..Default::default()
         }
     }
 
     pub fn refresh_processes(&mut self) {
-        match lsof::get_listening_processes() {
-            Ok(processes) => {
-                self.processes = processes;
-                self.apply_filter_and_sort();
+        self.processes = lsof::get_listening_processes();
+        self.apply_filter_and_sort();
 
-                if !self.search_query.is_empty()
-                    && self.filtered_processes.is_empty()
-                    && self.mode != AppMode::Search
-                {
-                    self.search_query.clear();
-                    self.apply_filter_and_sort();
-                }
-
-                self.error_message = None;
-                self.status_message = None;
-                if self.selected_index >= self.filtered_processes.len() {
-                    self.selected_index = 0;
-                }
-                self.list_state
-                    .select(if self.filtered_processes.is_empty() {
-                        None
-                    } else {
-                        Some(self.selected_index)
-                    });
-            }
-            Err(e) => {
-                self.error_message = Some(format!("Failed to get processes: {}", e));
-                self.status_message = None;
-            }
+        if !self.search_query.is_empty()
+            && self.filtered_processes.is_empty()
+            && self.mode != AppMode::Search
+        {
+            self.search_query.clear();
+            self.apply_filter_and_sort();
         }
+
+        self.error_message = None;
+        self.loading_message = None;
+        if self.selected_index >= self.filtered_processes.len() {
+            self.selected_index = 0;
+        }
+        self.list_state
+            .select(if self.filtered_processes.is_empty() {
+                None
+            } else {
+                Some(self.selected_index)
+            });
     }
 
     pub(crate) fn apply_filter_and_sort(&mut self) {
         self.filtered_processes = if self.search_query.is_empty() {
             self.processes.clone()
         } else {
+            let query = self.search_query.to_lowercase();
             self.processes
                 .iter()
-                .filter(|process| {
-                    let query_lower = self.search_query.to_lowercase();
-                    process.command.to_lowercase().contains(&query_lower)
-                        || process.user.to_lowercase().contains(&query_lower)
-                        || process.name.to_lowercase().contains(&query_lower)
-                        || process.pid.contains(&query_lower)
+                .filter(|p| {
+                    p.command.to_lowercase().contains(&query)
+                        || p.user.to_lowercase().contains(&query)
+                        || p.local_addr.to_lowercase().contains(&query)
+                        || p.port.to_string().contains(&query)
+                        || p.pid.contains(&query)
                 })
                 .cloned()
                 .collect()
@@ -133,16 +116,12 @@ impl App {
 
         self.filtered_processes.sort_by(|a, b| {
             let comparison = match self.sort_by {
-                SortBy::Port => {
-                    let port_a = extract_port(&a.name);
-                    let port_b = extract_port(&b.name);
-                    port_a.cmp(&port_b)
-                }
+                SortBy::Port => a.port.cmp(&b.port),
                 SortBy::Pid => a
                     .pid
                     .parse::<u32>()
-                    .unwrap_or(0)
-                    .cmp(&b.pid.parse::<u32>().unwrap_or(0)),
+                    .unwrap_or(u32::MAX)
+                    .cmp(&b.pid.parse::<u32>().unwrap_or(u32::MAX)),
                 SortBy::User => a.user.cmp(&b.user),
                 SortBy::Command => a.command.cmp(&b.command),
                 SortBy::Memory => a
@@ -150,7 +129,7 @@ impl App {
                     .partial_cmp(&b.memory_mb)
                     .unwrap_or(std::cmp::Ordering::Equal),
                 SortBy::StartTime => match (&a.start_time, &b.start_time) {
-                    (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
+                    (Some(at), Some(bt)) => at.cmp(bt),
                     (Some(_), None) => std::cmp::Ordering::Less,
                     (None, Some(_)) => std::cmp::Ordering::Greater,
                     (None, None) => std::cmp::Ordering::Equal,
@@ -357,10 +336,18 @@ impl App {
     }
 
     fn enter_confirm_mode(&mut self) {
-        if !self.filtered_processes.is_empty() {
-            self.mode = AppMode::ConfirmKill;
-            self.confirm_button_selected = true;
+        let Some(selected) = self.filtered_processes.get(self.selected_index) else {
+            return;
+        };
+        if !selected.is_killable() {
+            self.status_message = Some(format!(
+                "Cannot kill :{} — PID unknown (try running with sudo)",
+                selected.port
+            ));
+            return;
         }
+        self.mode = AppMode::ConfirmKill;
+        self.confirm_button_selected = true;
     }
 
     fn enter_search_mode(&mut self) {
@@ -415,41 +402,38 @@ impl App {
     }
 
     fn confirm_kill(&mut self) {
-        if let Some(process) = self.filtered_processes.get(self.selected_index) {
-            let pid = &process.pid;
-            let command = &process.command;
+        let Some(process) = self.filtered_processes.get(self.selected_index) else {
+            return;
+        };
+        let pid = process.pid.clone();
+        let command = process.command.clone();
+        self.mode = AppMode::ProcessList;
 
-            match lsof::kill_process(pid) {
-                Ok(()) => {
-                    self.status_message =
-                        Some(format!("Successfully killed process {} ({})", command, pid));
-                    self.error_message = None;
-                    self.mode = AppMode::ProcessList;
-
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    self.refresh_processes();
-                }
-                Err(e) => match lsof::force_kill_process(pid) {
-                    Ok(()) => {
-                        self.status_message =
-                            Some(format!("Force killed process {} ({})", command, pid));
-                        self.error_message = None;
-                        self.mode = AppMode::ProcessList;
-
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        self.refresh_processes();
-                    }
-                    Err(force_err) => {
-                        self.error_message = Some(format!(
-                            "Failed to kill process: {} | Force kill also failed: {}",
-                            e, force_err
-                        ));
-                        self.status_message = None;
-                        self.mode = AppMode::ProcessList;
-                    }
-                },
+        match lsof::kill_process_verified(&pid) {
+            Ok(KillOutcome::Terminated) => {
+                self.status_message = Some(format!("Killed {} ({})", command, pid));
+                self.error_message = None;
+            }
+            Ok(KillOutcome::ForceKilled) => {
+                self.status_message =
+                    Some(format!("Force-killed {} ({}) — ignored SIGTERM", command, pid));
+                self.error_message = None;
+            }
+            Ok(KillOutcome::StillAlive) => {
+                self.error_message = Some(format!(
+                    "{} ({}) is still alive after SIGKILL — likely a kernel-stuck process",
+                    command, pid
+                ));
+                self.status_message = None;
+            }
+            Err(e) => {
+                self.error_message =
+                    Some(format!("Failed to signal {} ({}): {}", command, pid, e));
+                self.status_message = None;
             }
         }
+
+        self.refresh_processes();
     }
 
     fn cancel_kill(&mut self) {
