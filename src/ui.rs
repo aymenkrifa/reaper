@@ -93,6 +93,21 @@ fn shorten_path(path: &str) -> String {
     path.to_string()
 }
 
+/// Truncate to `max` display chars, replacing the last char with `…` when
+/// truncation occurs. Without this signal, a clipped cell looks identical
+/// to one that fits and the user can't tell they're missing information.
+fn truncate(s: &str, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max - 1).collect();
+    out.push('…');
+    out
+}
+
 
 impl App {
     pub(crate) fn render(&mut self, frame: &mut Frame) {
@@ -153,7 +168,11 @@ impl App {
 
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(0), Constraint::Length(4)])
+            .constraints([
+                Constraint::Min(0),    // process table
+                Constraint::Length(2), // detail line for the selected row
+                Constraint::Length(4), // status + help
+            ])
             .split(chunks[1]);
 
         let rows: Vec<Row> = self
@@ -187,11 +206,47 @@ impl App {
 
         frame.render_stateful_widget(table, main_chunks[0], &mut self.table_state);
 
-        self.render_status_and_help(frame, main_chunks[1]);
+        self.render_selected_detail(frame, main_chunks[1]);
+
+        self.render_status_and_help(frame, main_chunks[2]);
 
         if self.mode == AppMode::ConfirmKill {
             self.render_confirmation_dialog(frame);
         }
+    }
+
+    /// Two-line panel directly below the table that shows the unabridged
+    /// COMMAND and CWD for the currently-selected row. The table cells
+    /// themselves truncate with `…` to stay scannable; this panel is where
+    /// you read the full text.
+    fn render_selected_detail(&self, frame: &mut Frame, area: Rect) {
+        let Some(p) = self.filtered_processes.get(self.selected_index) else {
+            return;
+        };
+        let cwd_display = p
+            .cwd
+            .as_deref()
+            .map(shorten_path)
+            .unwrap_or_else(|| "—".to_string());
+
+        let lines = vec![
+            Line::from(vec![
+                Span::styled(
+                    "▌ ",
+                    Style::default().fg(Colors::ACCENT).bold(),
+                ),
+                Span::styled(
+                    p.command.clone(),
+                    Style::default().fg(Colors::TEXT_PRIMARY),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("↳ ", Style::default().fg(Colors::TEXT_TERTIARY)),
+                Span::styled(cwd_display, Style::default().fg(Colors::TEXT_SECONDARY)),
+            ]),
+        ];
+
+        frame.render_widget(Paragraph::new(lines), area);
     }
 
     fn build_header_row(&self) -> Row<'static> {
@@ -262,11 +317,15 @@ impl App {
             .map(shorten_path)
             .unwrap_or_else(|| "—".to_string());
 
+        // Cells whose content can exceed their column width get an explicit
+        // ellipsis so a clipped cell is visually distinguishable from one
+        // that fit. Narrow numeric/identifier columns aren't truncated —
+        // they always fit their constraint.
         Row::new(vec![
             cell(format!(":{}", p.port), SortBy::Port),
-            cell(p.command.clone(), SortBy::Command),
-            cell(cwd, SortBy::Cwd),
-            cell(p.user.clone(), SortBy::User),
+            cell(truncate(&p.command, 30), SortBy::Command),
+            cell(truncate(&cwd, 28), SortBy::Cwd),
+            cell(truncate(&p.user, 12), SortBy::User),
             cell(memory, SortBy::Memory),
             cell(uptime, SortBy::StartTime),
             cell(p.protocol.to_string(), SortBy::Protocol),
