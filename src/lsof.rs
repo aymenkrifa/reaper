@@ -254,14 +254,38 @@ fn read_proc_stat(pid: &str, boot_secs: u64) -> (String, Option<SystemTime>) {
         .unwrap_or((String::new(), None))
 }
 
+/// Interpreter-style executables whose first argument is a script path
+/// rather than a flag — so basenaming that path collapses noise like
+/// `/home/user/testing/k3s-inspector` to `k3s-inspector` without losing
+/// meaning.
+const INTERPRETERS: &[&str] = &[
+    "python", "node", "ruby", "perl", "java", "sh", "bash", "zsh", "fish",
+    "dash", "deno", "bun", "lua", "tcl", "php", "pwsh",
+];
+
+fn basename(s: &str) -> &str {
+    s.rsplit('/').next().unwrap_or(s)
+}
+
+/// Strip trailing version digits/dots so `python3.11`, `python3`, and
+/// `node22` all match the bare interpreter name.
+fn strip_version(name: &str) -> &str {
+    name.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.')
+}
+
 /// Build a human-readable command string from /proc/<pid>/cmdline.
 ///
-/// /proc/<pid>/cmdline is the raw argv with NUL separators. The first
-/// argument is the executable path; we basename it so the displayed
-/// string starts with the program name (`uvicorn ...`) rather than its
-/// full install path (`/home/user/.venv/bin/uvicorn ...`). Subsequent
-/// args are joined with spaces, which is what the user typed and what
-/// distinguishes one `python3` / `node` / `uvicorn` from another.
+/// /proc/<pid>/cmdline is the raw argv with NUL separators. arg0 is
+/// always basenamed so the line starts with the program name (`nginx`)
+/// rather than its install path (`/usr/sbin/nginx`).
+///
+/// When arg0 is a known interpreter (python, node, ruby, …) we also
+/// basename arg1, because for interpreters arg1 *is* the script. Without
+/// this, every Python listener reads
+/// `python /home/user/testing/k3s-inspector` — accurate but hard to scan.
+/// With it, the same listener reads `python k3s-inspector` and the
+/// project name pops. Args after the script are kept verbatim — those
+/// are flags and values the user actually typed.
 pub(crate) fn parse_cmdline(raw: &[u8]) -> Option<String> {
     if raw.is_empty() {
         return None;
@@ -271,9 +295,18 @@ pub(crate) fn parse_cmdline(raw: &[u8]) -> Option<String> {
     if parts.is_empty() {
         return None;
     }
-    let arg0 = parts[0].rsplit('/').next().unwrap_or(parts[0]);
+    let arg0 = basename(parts[0]);
+    let is_interp = INTERPRETERS.contains(&strip_version(arg0));
+
     if parts.len() == 1 {
         Some(arg0.to_string())
+    } else if is_interp {
+        let script = basename(parts[1]);
+        if parts.len() == 2 {
+            Some(format!("{} {}", arg0, script))
+        } else {
+            Some(format!("{} {} {}", arg0, script, parts[2..].join(" ")))
+        }
     } else {
         Some(format!("{} {}", arg0, parts[1..].join(" ")))
     }
@@ -587,13 +620,40 @@ www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
     }
 
     #[test]
-    fn parse_cmdline_basenames_arg0_and_joins_args() {
-        // /proc/<pid>/cmdline: NUL-separated argv, often trailing NUL.
+    fn parse_cmdline_basenames_python_script() {
+        // The wrapper-script case: argv is python + path-to-uvicorn-shim + app.
         let raw = b"/usr/bin/python3\0/home/u/.venv/bin/uvicorn\0app.main:app\0--port\0:8000\0";
         assert_eq!(
             parse_cmdline(raw).as_deref(),
-            Some("python3 /home/u/.venv/bin/uvicorn app.main:app --port :8000")
+            Some("python3 uvicorn app.main:app --port :8000")
         );
+    }
+
+    #[test]
+    fn parse_cmdline_basenames_user_script_path() {
+        // The k3s-inspector case the user reported.
+        let raw = b"/usr/bin/python\0/home/user/testing/k3s-inspector\0";
+        assert_eq!(parse_cmdline(raw).as_deref(), Some("python k3s-inspector"));
+    }
+
+    #[test]
+    fn parse_cmdline_keeps_flags_for_non_interpreter() {
+        // For a non-interpreter binary, args after arg0 are flags/values
+        // the user typed — don't basename them.
+        let raw = b"/usr/sbin/nginx\0-c\0/etc/nginx.conf\0";
+        assert_eq!(
+            parse_cmdline(raw).as_deref(),
+            Some("nginx -c /etc/nginx.conf")
+        );
+    }
+
+    #[test]
+    fn parse_cmdline_handles_versioned_interpreter() {
+        // python3.11 / node22 should be recognized as interpreters.
+        let raw = b"/usr/bin/python3.11\0/path/script.py\0";
+        assert_eq!(parse_cmdline(raw).as_deref(), Some("python3.11 script.py"));
+        let raw = b"/usr/bin/node22\0/path/server.js\0";
+        assert_eq!(parse_cmdline(raw).as_deref(), Some("node22 server.js"));
     }
 
     #[test]
