@@ -2,10 +2,12 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Style, Stylize},
+    text::{Line, Span},
     widgets::{Block, Clear, List, ListItem, Paragraph},
 };
 
 use crate::app::{App, AppMode, SortBy};
+use crate::lsof::LsofEntry;
 
 pub(crate) struct Colors;
 impl Colors {
@@ -22,13 +24,9 @@ fn get_loading_animation(frame: usize) -> &'static str {
     animations[frame % animations.len()]
 }
 
-fn highlight_matching_text(
-    text: &str,
-    query: &str,
-    style: Style,
-) -> Vec<ratatui::text::Span<'static>> {
+fn highlight_matching_text(text: &str, query: &str, style: Style) -> Vec<Span<'static>> {
     if query.is_empty() {
-        return vec![ratatui::text::Span::styled(text.to_string(), style)];
+        return vec![Span::styled(text.to_string(), style)];
     }
 
     let mut spans = Vec::new();
@@ -38,14 +36,11 @@ fn highlight_matching_text(
     let mut last_end = 0;
     for (start, _) in lower_text.match_indices(&lower_query) {
         if start > last_end {
-            spans.push(ratatui::text::Span::styled(
-                text[last_end..start].to_string(),
-                style,
-            ));
+            spans.push(Span::styled(text[last_end..start].to_string(), style));
         }
 
         let end = start + lower_query.len();
-        spans.push(ratatui::text::Span::styled(
+        spans.push(Span::styled(
             text[start..end].to_string(),
             style.add_modifier(ratatui::style::Modifier::UNDERLINED),
         ));
@@ -54,13 +49,43 @@ fn highlight_matching_text(
     }
 
     if last_end < text.len() {
-        spans.push(ratatui::text::Span::styled(
-            text[last_end..].to_string(),
-            style,
-        ));
+        spans.push(Span::styled(text[last_end..].to_string(), style));
     }
 
     spans
+}
+
+fn sort_color(sort_by: &SortBy) -> Color {
+    match sort_by {
+        SortBy::Port => Color::Rgb(241, 196, 15),
+        SortBy::Pid => Color::Rgb(52, 152, 219),
+        SortBy::User => Color::Rgb(46, 204, 113),
+        SortBy::Command => Color::Rgb(155, 89, 182),
+        SortBy::Memory => Color::Rgb(231, 76, 60),
+        SortBy::StartTime => Color::Rgb(230, 126, 34),
+    }
+}
+
+fn sort_label(sort_by: &SortBy) -> &'static str {
+    match sort_by {
+        SortBy::Port => "port",
+        SortBy::Pid => "pid",
+        SortBy::User => "user",
+        SortBy::Command => "command",
+        SortBy::Memory => "memory",
+        SortBy::StartTime => "start time",
+    }
+}
+
+fn sort_marker(sort_by: &SortBy) -> &'static str {
+    match sort_by {
+        SortBy::Port => "🟡",
+        SortBy::Pid => "🔵",
+        SortBy::User => "🟢",
+        SortBy::Command => "🟣",
+        SortBy::Memory => "🔴",
+        SortBy::StartTime => "🟠",
+    }
 }
 
 impl App {
@@ -81,12 +106,12 @@ impl App {
             return;
         }
 
-        if let Some(text) = &self.status_message
+        if let Some(text) = &self.loading_message
             && self.processes.is_empty()
         {
-            let loading_spinner = get_loading_animation(self.loading_animation_frame);
+            let spinner = get_loading_animation(self.loading_animation_frame);
             frame.render_widget(
-                Paragraph::new(format!("{} {}\n\nPlease wait...", loading_spinner, text))
+                Paragraph::new(format!("{} {}\n\nPlease wait...", spinner, text))
                     .style(Style::default().fg(Colors::TEXT_SECONDARY))
                     .centered(),
                 chunks[1],
@@ -129,197 +154,7 @@ impl App {
             .filtered_processes
             .iter()
             .enumerate()
-            .map(|(idx, process)| {
-                let port = if let Some(port_part) = process.name.rsplit(':').next() {
-                    port_part.replace("(LISTEN)", "").trim().to_string()
-                } else {
-                    process.name.clone()
-                };
-
-                let protocol = process.get_protocol();
-                let memory = process.get_memory_display();
-                let uptime = process.get_relative_time();
-
-                let is_selected = self.selected_index == idx;
-                let (base_title_style, base_details_style, base_meta_style) = if is_selected {
-                    (
-                        Style::default().fg(Colors::ACCENT).bold(),
-                        Style::default().fg(Colors::TEXT_PRIMARY),
-                        Style::default().fg(Colors::TEXT_TERTIARY),
-                    )
-                } else {
-                    (
-                        Style::default().fg(Colors::TEXT_PRIMARY),
-                        Style::default().fg(Colors::TEXT_SECONDARY),
-                        Style::default().fg(Colors::TEXT_MUTED),
-                    )
-                };
-
-                let sort_highlight_style = match self.sort_by {
-                    SortBy::Port => Style::default().fg(Color::Rgb(241, 196, 15)).bold(),
-                    SortBy::Pid => Style::default().fg(Color::Rgb(52, 152, 219)).bold(),
-                    SortBy::User => Style::default().fg(Color::Rgb(46, 204, 113)).bold(),
-                    SortBy::Command => Style::default().fg(Color::Rgb(155, 89, 182)).bold(),
-                    SortBy::Memory => Style::default().fg(Color::Rgb(231, 76, 60)).bold(),
-                    SortBy::StartTime => Style::default().fg(Color::Rgb(230, 126, 34)).bold(),
-                };
-
-                let title_line = if !self.search_query.is_empty() {
-                    let mut spans = vec![ratatui::text::Span::styled(":", base_title_style)];
-
-                    let port_spans = if self.sort_by == SortBy::Port {
-                        highlight_matching_text(&port, &self.search_query, sort_highlight_style)
-                    } else {
-                        highlight_matching_text(&port, &self.search_query, base_title_style)
-                    };
-                    spans.extend(port_spans);
-
-                    spans.push(ratatui::text::Span::styled(" • ", base_title_style));
-
-                    let command_spans = if self.sort_by == SortBy::Command {
-                        highlight_matching_text(
-                            &process.command,
-                            &self.search_query,
-                            sort_highlight_style,
-                        )
-                    } else {
-                        highlight_matching_text(
-                            &process.command,
-                            &self.search_query,
-                            base_title_style,
-                        )
-                    };
-                    spans.extend(command_spans);
-
-                    spans.push(ratatui::text::Span::styled(" • ", base_title_style));
-
-                    let memory_spans = if self.sort_by == SortBy::Memory {
-                        highlight_matching_text(&memory, &self.search_query, sort_highlight_style)
-                    } else {
-                        highlight_matching_text(&memory, &self.search_query, base_title_style)
-                    };
-                    spans.extend(memory_spans);
-
-                    ratatui::text::Line::from(spans)
-                } else {
-                    match self.sort_by {
-                        SortBy::Port => ratatui::text::Line::from(vec![
-                            ratatui::text::Span::styled(":", base_title_style),
-                            ratatui::text::Span::styled(port.clone(), sort_highlight_style),
-                            ratatui::text::Span::styled(
-                                format!(" • {} • {}", process.command, memory),
-                                base_title_style,
-                            ),
-                        ]),
-                        SortBy::Command => ratatui::text::Line::from(vec![
-                            ratatui::text::Span::styled(format!(":{} • ", port), base_title_style),
-                            ratatui::text::Span::styled(
-                                process.command.clone(),
-                                sort_highlight_style,
-                            ),
-                            ratatui::text::Span::styled(format!(" • {}", memory), base_title_style),
-                        ]),
-                        SortBy::Memory => ratatui::text::Line::from(vec![
-                            ratatui::text::Span::styled(
-                                format!(":{} • {} • ", port, process.command),
-                                base_title_style,
-                            ),
-                            ratatui::text::Span::styled(memory.clone(), sort_highlight_style),
-                        ]),
-                        _ => ratatui::text::Line::from(format!(
-                            ":{} • {} • {}",
-                            port, process.command, memory
-                        ))
-                        .style(base_title_style),
-                    }
-                };
-
-                let details_line = if !self.search_query.is_empty() {
-                    let mut spans = vec![ratatui::text::Span::styled("↳ ", base_details_style)];
-
-                    let user_spans = if self.sort_by == SortBy::User {
-                        highlight_matching_text(
-                            &process.user,
-                            &self.search_query,
-                            sort_highlight_style,
-                        )
-                    } else {
-                        highlight_matching_text(
-                            &process.user,
-                            &self.search_query,
-                            base_details_style,
-                        )
-                    };
-                    spans.extend(user_spans);
-
-                    spans.push(ratatui::text::Span::styled(" • ", base_details_style));
-                    spans.extend(highlight_matching_text(
-                        protocol,
-                        &self.search_query,
-                        base_details_style,
-                    ));
-                    spans.push(ratatui::text::Span::styled(" • ", base_details_style));
-
-                    let pid_spans = if self.sort_by == SortBy::Pid {
-                        highlight_matching_text(
-                            &process.pid,
-                            &self.search_query,
-                            sort_highlight_style,
-                        )
-                    } else {
-                        highlight_matching_text(
-                            &process.pid,
-                            &self.search_query,
-                            base_details_style,
-                        )
-                    };
-                    spans.extend(pid_spans);
-
-                    ratatui::text::Line::from(spans)
-                } else {
-                    match self.sort_by {
-                        SortBy::User => ratatui::text::Line::from(vec![
-                            ratatui::text::Span::styled("↳ ", base_details_style),
-                            ratatui::text::Span::styled(process.user.clone(), sort_highlight_style),
-                            ratatui::text::Span::styled(
-                                format!(" • {} • {}", protocol, process.pid),
-                                base_details_style,
-                            ),
-                        ]),
-                        SortBy::Pid => ratatui::text::Line::from(vec![
-                            ratatui::text::Span::styled(
-                                format!("↳ {} • {} • ", process.user, protocol),
-                                base_details_style,
-                            ),
-                            ratatui::text::Span::styled(process.pid.clone(), sort_highlight_style),
-                        ]),
-                        _ => ratatui::text::Line::from(format!(
-                            "↳ {} • {} • {}",
-                            process.user, protocol, process.pid
-                        ))
-                        .style(base_details_style),
-                    }
-                };
-
-                let meta_line = match self.sort_by {
-                    SortBy::StartTime => ratatui::text::Line::from(vec![
-                        ratatui::text::Span::styled("  └ uptime: ", base_meta_style),
-                        ratatui::text::Span::styled(
-                            format!("{} ago", uptime),
-                            sort_highlight_style,
-                        ),
-                    ]),
-                    _ => ratatui::text::Line::from(format!("  └ uptime: {} ago", uptime))
-                        .style(base_meta_style),
-                };
-
-                ListItem::new(vec![
-                    title_line,
-                    details_line,
-                    meta_line,
-                    ratatui::text::Line::from(""),
-                ])
-            })
+            .map(|(idx, p)| self.build_list_item(p, idx))
             .collect();
 
         let highlight_symbol = if self.mode == AppMode::Search {
@@ -339,6 +174,91 @@ impl App {
         if self.mode == AppMode::ConfirmKill {
             self.render_confirmation_dialog(frame);
         }
+    }
+
+    fn build_list_item(&self, process: &LsofEntry, idx: usize) -> ListItem<'static> {
+        let port = process.port.to_string();
+        let protocol = process.get_protocol().to_string();
+        let memory = process.get_memory_display();
+        let uptime = process.get_relative_time();
+        let is_selected = self.selected_index == idx;
+
+        let (title_base, details_base, meta_base) = if is_selected {
+            (
+                Style::default().fg(Colors::ACCENT).bold(),
+                Style::default().fg(Colors::TEXT_PRIMARY),
+                Style::default().fg(Colors::TEXT_TERTIARY),
+            )
+        } else {
+            (
+                Style::default().fg(Colors::TEXT_PRIMARY),
+                Style::default().fg(Colors::TEXT_SECONDARY),
+                Style::default().fg(Colors::TEXT_MUTED),
+            )
+        };
+
+        let sort_style = Style::default().fg(sort_color(&self.sort_by)).bold();
+
+        // Either highlight search matches per-field, or highlight the active sort
+        // column. Helper closure picks the right style for a given field.
+        let field = |val: &str, this: SortBy| -> Vec<Span<'static>> {
+            if !self.search_query.is_empty() {
+                let style = if self.sort_by == this {
+                    sort_style
+                } else {
+                    title_base
+                };
+                highlight_matching_text(val, &self.search_query, style)
+            } else if self.sort_by == this {
+                vec![Span::styled(val.to_string(), sort_style)]
+            } else {
+                vec![Span::styled(val.to_string(), title_base)]
+            }
+        };
+
+        let detail_field = |val: &str, this: SortBy| -> Vec<Span<'static>> {
+            if !self.search_query.is_empty() {
+                let style = if self.sort_by == this {
+                    sort_style
+                } else {
+                    details_base
+                };
+                highlight_matching_text(val, &self.search_query, style)
+            } else if self.sort_by == this {
+                vec![Span::styled(val.to_string(), sort_style)]
+            } else {
+                vec![Span::styled(val.to_string(), details_base)]
+            }
+        };
+
+        let mut title = vec![Span::styled(":", title_base)];
+        title.extend(field(&port, SortBy::Port));
+        title.push(Span::styled(" • ", title_base));
+        title.extend(field(&process.command, SortBy::Command));
+        title.push(Span::styled(" • ", title_base));
+        title.extend(field(&memory, SortBy::Memory));
+
+        let mut details = vec![Span::styled("↳ ", details_base)];
+        details.extend(detail_field(&process.user, SortBy::User));
+        details.push(Span::styled(" • ", details_base));
+        details.extend(highlight_matching_text(
+            &protocol,
+            &self.search_query,
+            details_base,
+        ));
+        details.push(Span::styled(" • ", details_base));
+        details.extend(detail_field(&process.pid, SortBy::Pid));
+
+        let meta = if self.sort_by == SortBy::StartTime {
+            Line::from(vec![
+                Span::styled("  └ uptime: ", meta_base),
+                Span::styled(format!("{} ago", uptime), sort_style),
+            ])
+        } else {
+            Line::from(format!("  └ uptime: {} ago", uptime)).style(meta_base)
+        };
+
+        ListItem::new(vec![Line::from(title), Line::from(details), meta, Line::from("")])
     }
 
     fn render_header(&self, frame: &mut Frame, area: Rect) {
@@ -400,23 +320,9 @@ impl App {
 
         let sort_text = format!(
             "sorted by {} {} {}",
-            match self.sort_by {
-                SortBy::Port => "port",
-                SortBy::Pid => "pid",
-                SortBy::User => "user",
-                SortBy::Command => "command",
-                SortBy::Memory => "memory",
-                SortBy::StartTime => "start time",
-            },
+            sort_label(&self.sort_by),
             if self.sort_ascending { "↑" } else { "↓" },
-            match self.sort_by {
-                SortBy::Port => "🟡",
-                SortBy::Pid => "🔵",
-                SortBy::User => "🟢",
-                SortBy::Command => "🟣",
-                SortBy::Memory => "🔴",
-                SortBy::StartTime => "🟠",
-            }
+            sort_marker(&self.sort_by)
         );
 
         let header_layout = Layout::default()
@@ -519,13 +425,10 @@ impl App {
 
             frame.render_widget(Clear, popup_area);
 
-            let port = if let Some(port_part) = selected_process.name.rsplit(':').next() {
-                port_part.replace("(LISTEN)", "").trim().to_string()
-            } else {
-                selected_process.name.clone()
-            };
-
-            let question_text = format!("Are you sure you want to kill port :{}?", port);
+            let question_text = format!(
+                "Are you sure you want to kill port :{}?",
+                selected_process.port
+            );
 
             let dialog_content = Layout::default()
                 .direction(Direction::Vertical)
