@@ -121,7 +121,6 @@ fn truncate(s: &str, max: usize) -> String {
     out
 }
 
-
 impl App {
     pub(crate) fn render(&mut self, frame: &mut Frame) {
         let chunks = Layout::default()
@@ -239,14 +238,8 @@ impl App {
 
         let lines = vec![
             Line::from(vec![
-                Span::styled(
-                    "▌ ",
-                    Style::default().fg(Colors::ACCENT).bold(),
-                ),
-                Span::styled(
-                    p.command.clone(),
-                    Style::default().fg(Colors::TEXT_PRIMARY),
-                ),
+                Span::styled("▌ ", Style::default().fg(Colors::ACCENT).bold()),
+                Span::styled(p.command.clone(), Style::default().fg(Colors::TEXT_PRIMARY)),
             ]),
             Line::from(vec![
                 Span::styled("↳ ", Style::default().fg(Colors::TEXT_TERTIARY)),
@@ -497,28 +490,16 @@ impl App {
                 Style::default().fg(Colors::PORT_HUE).bold(),
             ),
             Span::styled("  ", dim),
-            Span::styled(
-                p.command.clone(),
-                Style::default().fg(Colors::COMMAND_HUE),
-            ),
+            Span::styled(p.command.clone(), Style::default().fg(Colors::COMMAND_HUE)),
             Span::styled("  pid ", dim),
-            Span::styled(
-                p.pid.clone(),
-                Style::default().fg(Colors::PID_HUE).bold(),
-            ),
+            Span::styled(p.pid.clone(), Style::default().fg(Colors::PID_HUE).bold()),
             Span::styled(" ?", Style::default().fg(Colors::TEXT_PRIMARY).bold()),
         ]);
 
         let choices = Line::from(vec![
-            Span::styled(
-                "[y/Enter]",
-                Style::default().fg(Colors::DANGER).bold(),
-            ),
+            Span::styled("[y/Enter]", Style::default().fg(Colors::DANGER).bold()),
             Span::styled(" kill        ", Style::default().fg(Colors::TEXT_SECONDARY)),
-            Span::styled(
-                "[n/Esc]",
-                Style::default().fg(Colors::TEXT_TERTIARY).bold(),
-            ),
+            Span::styled("[n/Esc]", Style::default().fg(Colors::TEXT_TERTIARY).bold()),
             Span::styled(" cancel", Style::default().fg(Colors::TEXT_SECONDARY)),
         ]);
 
@@ -536,5 +517,4 @@ impl App {
         frame.render_widget(Paragraph::new(""), layout[1]);
         frame.render_widget(Paragraph::new(choices), layout[2]);
     }
-
 }

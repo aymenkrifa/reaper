@@ -1,10 +1,10 @@
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
+    DefaultTerminal,
     style::{Style, Stylize},
     text::{Line, Span},
     widgets::TableState,
-    DefaultTerminal,
 };
 
 use crate::lsof::{self, KillOutcome, LsofEntry};

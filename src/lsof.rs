@@ -262,8 +262,8 @@ fn read_proc_stat(pid: &str, boot_secs: u64) -> (String, Option<SystemTime>) {
 /// `/home/user/testing/k3s-inspector` to `k3s-inspector` without losing
 /// meaning.
 const INTERPRETERS: &[&str] = &[
-    "python", "node", "ruby", "perl", "java", "sh", "bash", "zsh", "fish",
-    "dash", "deno", "bun", "lua", "tcl", "php", "pwsh",
+    "python", "node", "ruby", "perl", "java", "sh", "bash", "zsh", "fish", "dash", "deno", "bun",
+    "lua", "tcl", "php", "pwsh",
 ];
 
 fn basename(s: &str) -> &str {
@@ -574,7 +574,8 @@ mod tests {
         // Field 22 (starttime) is at index 19 after the rparen.
         // We construct a stat line with comm = "weird (name)" and starttime = 100.
         let mut fields = vec![
-            "S".to_string(), "1".to_string(), // state, ppid (idx 0,1)
+            "S".to_string(),
+            "1".to_string(), // state, ppid (idx 0,1)
         ];
         for i in 2..19 {
             fields.push(i.to_string());
