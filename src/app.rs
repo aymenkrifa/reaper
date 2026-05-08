@@ -1,8 +1,14 @@
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{DefaultTerminal, widgets::TableState};
+use ratatui::{
+    DefaultTerminal,
+    style::{Style, Stylize},
+    text::{Line, Span},
+    widgets::TableState,
+};
 
-use crate::lsof::{self, KillOutcome};
+use crate::lsof::{self, KillOutcome, LsofEntry};
+use crate::ui::Colors;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum AppMode {
@@ -20,7 +26,6 @@ pub(crate) enum SortBy {
     Memory,
     StartTime,
     Protocol,
-    Cwd,
 }
 
 #[derive(Debug)]
@@ -29,12 +34,11 @@ pub struct App {
     pub(crate) processes: Vec<lsof::LsofEntry>,
     pub(crate) filtered_processes: Vec<lsof::LsofEntry>,
     pub(crate) error_message: Option<String>,
-    pub(crate) status_message: Option<String>,
+    pub(crate) status_message: Option<Line<'static>>,
     pub(crate) loading_message: Option<String>,
     pub(crate) mode: AppMode,
     pub(crate) selected_index: usize,
     pub(crate) table_state: TableState,
-    pub(crate) confirm_button_selected: bool,
     pub(crate) search_query: String,
     pub(crate) sort_by: SortBy,
     pub(crate) sort_ascending: bool,
@@ -57,7 +61,6 @@ impl Default for App {
             mode: AppMode::ProcessList,
             selected_index: 0,
             table_state,
-            confirm_button_selected: true,
             search_query: String::new(),
             sort_by: SortBy::Port,
             sort_ascending: false,
@@ -65,6 +68,29 @@ impl Default for App {
             show_restricted: false,
         }
     }
+}
+
+/// Build a status line with port/command/pid colored to match their
+/// table-column hues, so the eye picks each piece out instantly.
+/// `verb_color` carries the outcome semantics (green=killed,
+/// orange=force-killed, danger handling lives in error_message).
+fn kill_status_line(
+    verb: &str,
+    verb_color: ratatui::style::Color,
+    p: &LsofEntry,
+) -> Line<'static> {
+    let dim = Style::default().fg(Colors::TEXT_TERTIARY);
+    Line::from(vec![
+        Span::styled(format!("{} ", verb), Style::default().fg(verb_color).bold()),
+        Span::styled(
+            format!(":{}", p.port),
+            Style::default().fg(Colors::PORT_HUE).bold(),
+        ),
+        Span::styled("  ", dim),
+        Span::styled(p.command.clone(), Style::default().fg(Colors::COMMAND_HUE)),
+        Span::styled("  pid ", dim),
+        Span::styled(p.pid.clone(), Style::default().fg(Colors::PID_HUE).bold()),
+    ])
 }
 
 impl App {
@@ -147,12 +173,6 @@ impl App {
                     (None, None) => std::cmp::Ordering::Equal,
                 },
                 SortBy::Protocol => a.protocol.cmp(b.protocol),
-                SortBy::Cwd => match (&a.cwd, &b.cwd) {
-                    (Some(ac), Some(bc)) => ac.cmp(bc),
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    (None, None) => std::cmp::Ordering::Equal,
-                },
             };
 
             if self.sort_ascending {
@@ -260,31 +280,28 @@ impl App {
                 (_, KeyCode::Char('a') | KeyCode::Char('A')) => {
                     self.toggle_restricted();
                 }
-                // 1-8 mirror the visual column order: PORT, COMMAND, CWD,
-                // USER, MEM, UPTIME, PROTO, PID.
+                // 1-7 mirror the visual column order: PORT, USER, MEM,
+                // UPTIME, PROTO, PID, COMMAND.
                 (_, KeyCode::Char('1')) => {
                     self.set_sort(SortBy::Port);
                 }
                 (_, KeyCode::Char('2')) => {
-                    self.set_sort(SortBy::Command);
-                }
-                (_, KeyCode::Char('3')) => {
-                    self.set_sort(SortBy::Cwd);
-                }
-                (_, KeyCode::Char('4')) => {
                     self.set_sort(SortBy::User);
                 }
-                (_, KeyCode::Char('5')) => {
+                (_, KeyCode::Char('3')) => {
                     self.set_sort(SortBy::Memory);
                 }
-                (_, KeyCode::Char('6')) => {
+                (_, KeyCode::Char('4')) => {
                     self.set_sort(SortBy::StartTime);
                 }
-                (_, KeyCode::Char('7')) => {
+                (_, KeyCode::Char('5')) => {
                     self.set_sort(SortBy::Protocol);
                 }
-                (_, KeyCode::Char('8')) => {
+                (_, KeyCode::Char('6')) => {
                     self.set_sort(SortBy::Pid);
+                }
+                (_, KeyCode::Char('7')) => {
+                    self.set_sort(SortBy::Command);
                 }
                 (_, KeyCode::Backspace) if !self.search_query.is_empty() => {
                     self.search_query.pop();
@@ -300,17 +317,10 @@ impl App {
                 _ => {}
             },
             AppMode::ConfirmKill => match (key.modifiers, key.code) {
-                (_, KeyCode::Char('y') | KeyCode::Char('Y')) => self.confirm_kill(),
-                (_, KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc) => self.cancel_kill(),
-                (_, KeyCode::Left) => self.confirm_button_selected = true,
-                (_, KeyCode::Right) => self.confirm_button_selected = false,
-                (_, KeyCode::Enter) => {
-                    if self.confirm_button_selected {
-                        self.confirm_kill();
-                    } else {
-                        self.cancel_kill();
-                    }
+                (_, KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter) => {
+                    self.confirm_kill()
                 }
+                (_, KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc) => self.cancel_kill(),
                 _ => {}
             },
             AppMode::Search => match (key.modifiers, key.code) {
@@ -370,14 +380,26 @@ impl App {
             return;
         };
         if !selected.is_killable() {
-            self.status_message = Some(format!(
-                "Cannot kill :{} — owned by {}, re-run with sudo",
-                selected.port, selected.user
-            ));
+            let dim = Style::default().fg(Colors::TEXT_TERTIARY);
+            self.status_message = Some(Line::from(vec![
+                Span::styled(
+                    "Cannot kill ",
+                    Style::default().fg(Colors::DANGER).bold(),
+                ),
+                Span::styled(
+                    format!(":{}", selected.port),
+                    Style::default().fg(Colors::PORT_HUE).bold(),
+                ),
+                Span::styled(" — owned by ", dim),
+                Span::styled(
+                    selected.user.clone(),
+                    Style::default().fg(Colors::USER_HUE),
+                ),
+                Span::styled(", re-run with sudo", dim),
+            ]));
             return;
         }
         self.mode = AppMode::ConfirmKill;
-        self.confirm_button_selected = true;
     }
 
     fn enter_search_mode(&mut self) {
@@ -431,16 +453,15 @@ impl App {
 
     fn cycle_sort(&mut self) {
         // Cycle follows the visual column order:
-        // PORT → COMMAND → CWD → USER → MEM → UPTIME → PROTO → PID → PORT.
+        // PORT → USER → MEM → UPTIME → PROTO → PID → COMMAND → PORT.
         self.sort_by = match self.sort_by {
-            SortBy::Port => SortBy::Command,
-            SortBy::Command => SortBy::Cwd,
-            SortBy::Cwd => SortBy::User,
+            SortBy::Port => SortBy::User,
             SortBy::User => SortBy::Memory,
             SortBy::Memory => SortBy::StartTime,
             SortBy::StartTime => SortBy::Protocol,
             SortBy::Protocol => SortBy::Pid,
-            SortBy::Pid => SortBy::Port,
+            SortBy::Pid => SortBy::Command,
+            SortBy::Command => SortBy::Port,
         };
         self.apply_filter_and_sort();
     }
@@ -459,18 +480,24 @@ impl App {
         let Some(process) = self.filtered_processes.get(self.selected_index) else {
             return;
         };
+        let process = process.clone();
         let pid = process.pid.clone();
         let command = process.command.clone();
         self.mode = AppMode::ProcessList;
 
         match lsof::kill_process_verified(&pid) {
             Ok(KillOutcome::Terminated) => {
-                self.status_message = Some(format!("Killed {} ({})", command, pid));
+                self.status_message =
+                    Some(kill_status_line("Killed", Colors::SUCCESS, &process));
                 self.error_message = None;
             }
             Ok(KillOutcome::ForceKilled) => {
-                self.status_message =
-                    Some(format!("Force-killed {} ({}) — ignored SIGTERM", command, pid));
+                let mut line = kill_status_line("Force-killed", Colors::WARNING, &process);
+                line.spans.push(Span::styled(
+                    "  (ignored SIGTERM)",
+                    Style::default().fg(Colors::TEXT_TERTIARY),
+                ));
+                self.status_message = Some(line);
                 self.error_message = None;
             }
             Ok(KillOutcome::StillAlive) => {

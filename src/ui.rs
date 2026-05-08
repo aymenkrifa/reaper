@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, Cell, Clear, Paragraph, Row, Table},
+    widgets::{Block, Cell, Paragraph, Row, Table},
 };
 
 use crate::app::{App, AppMode, SortBy};
@@ -17,9 +17,23 @@ impl Colors {
     pub(crate) const TEXT_TERTIARY: Color = Color::Rgb(120, 120, 120);
     pub(crate) const TEXT_MUTED: Color = Color::Rgb(80, 80, 80);
     pub(crate) const SUCCESS: Color = Color::Rgb(46, 204, 113);
+    pub(crate) const WARNING: Color = Color::Rgb(230, 126, 34);
+    pub(crate) const DANGER: Color = Color::Rgb(231, 76, 60);
     /// Background tint for the selected row — dark teal that complements
     /// ACCENT without flattening the per-cell foreground colors.
     pub(crate) const SELECTED_BG: Color = Color::Rgb(20, 60, 55);
+
+    // Per-attribute hues. Reused both for the active sort-column
+    // highlight and for status/confirmation messages so the user builds
+    // a consistent visual association: yellow = port, purple = command,
+    // blue = pid, etc.
+    pub(crate) const PORT_HUE: Color = Color::Rgb(241, 196, 15);
+    pub(crate) const PID_HUE: Color = Color::Rgb(52, 152, 219);
+    pub(crate) const USER_HUE: Color = Color::Rgb(46, 204, 113);
+    pub(crate) const COMMAND_HUE: Color = Color::Rgb(155, 89, 182);
+    pub(crate) const MEMORY_HUE: Color = Color::Rgb(231, 76, 60);
+    pub(crate) const STARTTIME_HUE: Color = Color::Rgb(230, 126, 34);
+    pub(crate) const PROTOCOL_HUE: Color = Color::Rgb(0, 200, 220);
 }
 
 fn get_loading_animation(frame: usize) -> &'static str {
@@ -60,14 +74,13 @@ fn highlight_matching_text(text: &str, query: &str, style: Style) -> Vec<Span<'s
 
 fn sort_color(sort_by: &SortBy) -> Color {
     match sort_by {
-        SortBy::Port => Color::Rgb(241, 196, 15),
-        SortBy::Pid => Color::Rgb(52, 152, 219),
-        SortBy::User => Color::Rgb(46, 204, 113),
-        SortBy::Command => Color::Rgb(155, 89, 182),
-        SortBy::Memory => Color::Rgb(231, 76, 60),
-        SortBy::StartTime => Color::Rgb(230, 126, 34),
-        SortBy::Protocol => Color::Rgb(0, 200, 220),
-        SortBy::Cwd => Color::Rgb(232, 100, 180),
+        SortBy::Port => Colors::PORT_HUE,
+        SortBy::Pid => Colors::PID_HUE,
+        SortBy::User => Colors::USER_HUE,
+        SortBy::Command => Colors::COMMAND_HUE,
+        SortBy::Memory => Colors::MEMORY_HUE,
+        SortBy::StartTime => Colors::STARTTIME_HUE,
+        SortBy::Protocol => Colors::PROTOCOL_HUE,
     }
 }
 
@@ -183,13 +196,12 @@ impl App {
 
         let widths = [
             Constraint::Length(7),  // PORT
-            Constraint::Length(30), // COMMAND
-            Constraint::Length(28), // CWD (tilde-shortened, truncates if longer)
-            Constraint::Length(12), // USER
+            Constraint::Length(14), // USER
             Constraint::Length(8),  // MEM
             Constraint::Length(8),  // UPTIME
-            Constraint::Length(5),  // PROTO
+            Constraint::Length(7),  // PROTO (room for "PROTO ↑" header — was 5)
             Constraint::Length(7),  // PID
+            Constraint::Length(50), // COMMAND (last column, truncates if longer)
         ];
 
         let highlight_symbol = if self.mode == AppMode::Search {
@@ -209,10 +221,6 @@ impl App {
         self.render_selected_detail(frame, main_chunks[1]);
 
         self.render_status_and_help(frame, main_chunks[2]);
-
-        if self.mode == AppMode::ConfirmKill {
-            self.render_confirmation_dialog(frame);
-        }
     }
 
     /// Two-line panel directly below the table that shows the unabridged
@@ -264,13 +272,12 @@ impl App {
 
         Row::new(vec![
             header_cell("PORT", SortBy::Port),
-            header_cell("COMMAND", SortBy::Command),
-            header_cell("CWD", SortBy::Cwd),
             header_cell("USER", SortBy::User),
             header_cell("MEM", SortBy::Memory),
             header_cell("UPTIME", SortBy::StartTime),
             header_cell("PROTO", SortBy::Protocol),
             header_cell("PID", SortBy::Pid),
+            header_cell("COMMAND", SortBy::Command),
         ])
         .bottom_margin(1)
     }
@@ -311,25 +318,18 @@ impl App {
         } else {
             "—".to_string()
         };
-        let cwd = p
-            .cwd
-            .as_deref()
-            .map(shorten_path)
-            .unwrap_or_else(|| "—".to_string());
-
         // Cells whose content can exceed their column width get an explicit
         // ellipsis so a clipped cell is visually distinguishable from one
         // that fit. Narrow numeric/identifier columns aren't truncated —
         // they always fit their constraint.
         Row::new(vec![
             cell(format!(":{}", p.port), SortBy::Port),
-            cell(truncate(&p.command, 30), SortBy::Command),
-            cell(truncate(&cwd, 28), SortBy::Cwd),
-            cell(truncate(&p.user, 12), SortBy::User),
+            cell(truncate(&p.user, 14), SortBy::User),
             cell(memory, SortBy::Memory),
             cell(uptime, SortBy::StartTime),
             cell(p.protocol.to_string(), SortBy::Protocol),
             cell(p.pid.clone(), SortBy::Pid),
+            cell(truncate(&p.command, 50), SortBy::Command),
         ])
     }
 
@@ -431,6 +431,13 @@ impl App {
     }
 
     fn render_status_and_help(&self, frame: &mut Frame, area: Rect) {
+        // ConfirmKill takes over the whole status/help band so the prompt
+        // is unmissable; the table above still shows what's about to die.
+        if self.mode == AppMode::ConfirmKill {
+            self.render_kill_prompt(frame, area);
+            return;
+        }
+
         let help_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -441,24 +448,27 @@ impl App {
             .split(area);
 
         if let Some(status) = &self.status_message {
-            frame.render_widget(
-                Paragraph::new(format!("✓ {}", status)).style(Style::default().fg(Colors::SUCCESS)),
-                help_layout[0],
-            );
+            // Prepend a green check, then render the pre-styled spans.
+            let mut spans: Vec<Span<'static>> = vec![Span::styled(
+                "✓ ",
+                Style::default().fg(Colors::SUCCESS).bold(),
+            )];
+            spans.extend(status.spans.iter().cloned());
+            frame.render_widget(Paragraph::new(Line::from(spans)), help_layout[0]);
         }
 
         let help_text = match self.mode {
             AppMode::ProcessList => {
                 if self.search_query.is_empty() {
-                    "↑/↓: Navigate • Enter: Select • /: Search • s: Sort • a: Show restricted • r: Refresh • q/Esc: Quit"
+                    "↑/↓: Navigate • Enter: Kill • /: Search • s: Sort • a: Show restricted • r: Refresh • q/Esc: Quit"
                 } else {
                     &format!(
-                        "Search: \"{}\" • Esc: Clear search • ↑/↓: Navigate • Enter: Select",
+                        "Search: \"{}\" • Esc: Clear search • ↑/↓: Navigate • Enter: Kill",
                         self.search_query
                     )
                 }
             }
-            AppMode::ConfirmKill => "←/→: Select button • Enter: Confirm • y: Yes • n/Esc: No",
+            AppMode::ConfirmKill => unreachable!("handled above"),
             AppMode::Search => "Type to search • Enter: Apply • Esc: Cancel",
         };
 
@@ -470,94 +480,61 @@ impl App {
         );
     }
 
-    fn render_confirmation_dialog(&self, frame: &mut Frame) {
-        if let Some(selected_process) = self.filtered_processes.get(self.selected_index) {
-            let area = frame.area();
+    /// Inline kill confirmation — replaces the status/help band in
+    /// ConfirmKill mode. No popup, no clear-and-redraw, no button
+    /// navigation: just the question (with port/command/pid colored to
+    /// match their column hues) and a clear two-key choice underneath.
+    fn render_kill_prompt(&self, frame: &mut Frame, area: Rect) {
+        let Some(p) = self.filtered_processes.get(self.selected_index) else {
+            return;
+        };
+        let dim = Style::default().fg(Colors::TEXT_TERTIARY);
 
-            let popup_area = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(30),
-                    Constraint::Length(7),
-                    Constraint::Percentage(63),
-                ])
-                .split(area)[1];
+        let prompt = Line::from(vec![
+            Span::styled("Kill ", Style::default().fg(Colors::DANGER).bold()),
+            Span::styled(
+                format!(":{}", p.port),
+                Style::default().fg(Colors::PORT_HUE).bold(),
+            ),
+            Span::styled("  ", dim),
+            Span::styled(
+                p.command.clone(),
+                Style::default().fg(Colors::COMMAND_HUE),
+            ),
+            Span::styled("  pid ", dim),
+            Span::styled(
+                p.pid.clone(),
+                Style::default().fg(Colors::PID_HUE).bold(),
+            ),
+            Span::styled(" ?", Style::default().fg(Colors::TEXT_PRIMARY).bold()),
+        ]);
 
-            let popup_area = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(20),
-                    Constraint::Percentage(60),
-                    Constraint::Percentage(20),
-                ])
-                .split(popup_area)[1];
+        let choices = Line::from(vec![
+            Span::styled(
+                "[y/Enter]",
+                Style::default().fg(Colors::DANGER).bold(),
+            ),
+            Span::styled(" kill        ", Style::default().fg(Colors::TEXT_SECONDARY)),
+            Span::styled(
+                "[n/Esc]",
+                Style::default().fg(Colors::TEXT_TERTIARY).bold(),
+            ),
+            Span::styled(" cancel", Style::default().fg(Colors::TEXT_SECONDARY)),
+        ]);
 
-            frame.render_widget(Clear, popup_area);
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ])
+            .split(area);
 
-            let question_text = format!(
-                "Are you sure you want to kill port :{}?",
-                selected_process.port
-            );
-
-            let dialog_content = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(2),
-                    Constraint::Length(1),
-                    Constraint::Length(3),
-                ])
-                .split(popup_area);
-
-            frame.render_widget(
-                Paragraph::new(question_text)
-                    .style(Style::default().fg(Colors::TEXT_PRIMARY))
-                    .alignment(Alignment::Center)
-                    .wrap(ratatui::widgets::Wrap { trim: true }),
-                dialog_content[0],
-            );
-
-            let buttons_area = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(dialog_content[2]);
-
-            let yes_style = if self.confirm_button_selected {
-                Style::default().fg(Colors::ACCENT).bold()
-            } else {
-                Style::default().fg(Colors::TEXT_SECONDARY)
-            };
-
-            let yes_text = if self.confirm_button_selected {
-                "► Yes ◄"
-            } else {
-                "Yes"
-            };
-
-            frame.render_widget(
-                Paragraph::new(yes_text)
-                    .style(yes_style)
-                    .alignment(Alignment::Center),
-                buttons_area[0],
-            );
-
-            let no_style = if !self.confirm_button_selected {
-                Style::default().fg(Colors::ACCENT).bold()
-            } else {
-                Style::default().fg(Colors::TEXT_SECONDARY)
-            };
-
-            let no_text = if !self.confirm_button_selected {
-                "► No, take me back ◄"
-            } else {
-                "No, take me back"
-            };
-
-            frame.render_widget(
-                Paragraph::new(no_text)
-                    .style(no_style)
-                    .alignment(Alignment::Center),
-                buttons_area[1],
-            );
-        }
+        frame.render_widget(Paragraph::new(prompt), layout[0]);
+        frame.render_widget(Paragraph::new(""), layout[1]);
+        frame.render_widget(Paragraph::new(choices), layout[2]);
     }
+
 }
