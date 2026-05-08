@@ -67,7 +67,30 @@ fn sort_color(sort_by: &SortBy) -> Color {
         SortBy::Memory => Color::Rgb(231, 76, 60),
         SortBy::StartTime => Color::Rgb(230, 126, 34),
         SortBy::Protocol => Color::Rgb(0, 200, 220),
+        SortBy::Cwd => Color::Rgb(232, 100, 180),
     }
+}
+
+/// Replace the user's $HOME prefix with `~` so `/home/aymen/testing/x`
+/// renders as `~/testing/x`. Only applies the shortening when the path
+/// crosses a directory boundary, to avoid mangling unrelated paths that
+/// happen to start with the same characters as $HOME.
+fn shorten_path(path: &str) -> String {
+    use std::sync::OnceLock;
+    static HOME: OnceLock<String> = OnceLock::new();
+    let home = HOME.get_or_init(|| std::env::var("HOME").unwrap_or_default());
+    if home.is_empty() {
+        return path.to_string();
+    }
+    if path == home {
+        return "~".to_string();
+    }
+    if let Some(rest) = path.strip_prefix(home)
+        && rest.starts_with('/')
+    {
+        return format!("~{}", rest);
+    }
+    path.to_string()
 }
 
 
@@ -141,8 +164,9 @@ impl App {
 
         let widths = [
             Constraint::Length(7),  // PORT
-            Constraint::Length(40), // COMMAND (full cmdline, truncates if longer)
-            Constraint::Length(14), // USER
+            Constraint::Length(30), // COMMAND
+            Constraint::Length(28), // CWD (tilde-shortened, truncates if longer)
+            Constraint::Length(12), // USER
             Constraint::Length(8),  // MEM
             Constraint::Length(8),  // UPTIME
             Constraint::Length(5),  // PROTO
@@ -186,6 +210,7 @@ impl App {
         Row::new(vec![
             header_cell("PORT", SortBy::Port),
             header_cell("COMMAND", SortBy::Command),
+            header_cell("CWD", SortBy::Cwd),
             header_cell("USER", SortBy::User),
             header_cell("MEM", SortBy::Memory),
             header_cell("UPTIME", SortBy::StartTime),
@@ -231,10 +256,16 @@ impl App {
         } else {
             "—".to_string()
         };
+        let cwd = p
+            .cwd
+            .as_deref()
+            .map(shorten_path)
+            .unwrap_or_else(|| "—".to_string());
 
         Row::new(vec![
             cell(format!(":{}", p.port), SortBy::Port),
             cell(p.command.clone(), SortBy::Command),
+            cell(cwd, SortBy::Cwd),
             cell(p.user.clone(), SortBy::User),
             cell(memory, SortBy::Memory),
             cell(uptime, SortBy::StartTime),

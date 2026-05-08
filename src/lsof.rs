@@ -16,6 +16,9 @@ pub struct LsofEntry {
     pub protocol: &'static str,
     pub memory_mb: f64,
     pub start_time: Option<SystemTime>,
+    /// Working directory the process was started in, when readable.
+    /// `None` for restricted PIDs (other users) or kernel threads.
+    pub cwd: Option<String>,
 }
 
 impl LsofEntry {
@@ -317,6 +320,15 @@ fn read_proc_cmdline(pid: &str) -> Option<String> {
     parse_cmdline(&raw)
 }
 
+/// Resolve /proc/<pid>/cwd, the symlink to the process's working directory.
+/// Returns `None` for restricted PIDs (the symlink is unreadable for other
+/// users without CAP_SYS_PTRACE) and kernel threads.
+fn read_proc_cwd(pid: &str) -> Option<String> {
+    fs::read_link(format!("/proc/{}/cwd", pid))
+        .ok()
+        .and_then(|p| p.into_os_string().into_string().ok())
+}
+
 fn boot_uptime_secs() -> u64 {
     fs::read_to_string("/proc/uptime")
         .ok()
@@ -331,6 +343,7 @@ struct PidMeta {
     user: String,
     memory_mb: f64,
     start_time: Option<SystemTime>,
+    cwd: Option<String>,
 }
 
 pub fn get_listening_processes() -> Vec<LsofEntry> {
@@ -350,7 +363,7 @@ pub fn get_listening_processes() -> Vec<LsofEntry> {
     for l in listeners {
         let pid = inode_to_pid.get(&l.inode);
 
-        let (command, user, memory_mb, start_time) = match pid {
+        let (command, user, memory_mb, start_time, cwd) = match pid {
             Some(pid) => {
                 let meta = pid_cache.entry(pid.clone()).or_insert_with(|| {
                     let (uid_opt, memory_mb) = read_proc_status(pid);
@@ -365,11 +378,13 @@ pub fn get_listening_processes() -> Vec<LsofEntry> {
                     // 15-char comm name when cmdline is empty (kernel threads,
                     // zombies, races).
                     let command = read_proc_cmdline(pid).unwrap_or(comm);
+                    let cwd = read_proc_cwd(pid);
                     PidMeta {
                         command,
                         user,
                         memory_mb,
                         start_time,
+                        cwd,
                     }
                 });
                 (
@@ -377,6 +392,7 @@ pub fn get_listening_processes() -> Vec<LsofEntry> {
                     meta.user.clone(),
                     meta.memory_mb,
                     meta.start_time,
+                    meta.cwd.clone(),
                 )
             }
             None => {
@@ -388,7 +404,7 @@ pub fn get_listening_processes() -> Vec<LsofEntry> {
                     .get(&l.uid)
                     .cloned()
                     .unwrap_or_else(|| l.uid.to_string());
-                ("(restricted)".to_string(), user, 0.0, None)
+                ("(restricted)".to_string(), user, 0.0, None, None)
             }
         };
 
@@ -401,6 +417,7 @@ pub fn get_listening_processes() -> Vec<LsofEntry> {
             protocol: l.proto,
             memory_mb,
             start_time,
+            cwd,
         });
     }
 
@@ -686,6 +703,7 @@ www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
             protocol: "TCP",
             memory_mb: 0.0,
             start_time: None,
+            cwd: None,
         };
         assert!(e.is_killable());
         e.pid = "?".into();
