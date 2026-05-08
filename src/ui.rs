@@ -17,6 +17,9 @@ impl Colors {
     pub(crate) const TEXT_TERTIARY: Color = Color::Rgb(120, 120, 120);
     pub(crate) const TEXT_MUTED: Color = Color::Rgb(80, 80, 80);
     pub(crate) const SUCCESS: Color = Color::Rgb(46, 204, 113);
+    /// Background tint for the selected row — dark teal that complements
+    /// ACCENT without flattening the per-cell foreground colors.
+    pub(crate) const SELECTED_BG: Color = Color::Rgb(20, 60, 55);
 }
 
 fn get_loading_animation(frame: usize) -> &'static str {
@@ -137,12 +140,12 @@ impl App {
 
         let widths = [
             Constraint::Length(7),  // PORT
-            Constraint::Length(5),  // PROTO
-            Constraint::Length(7),  // PID
-            Constraint::Length(12), // USER
             Constraint::Min(20),    // COMMAND
+            Constraint::Length(12), // USER
             Constraint::Length(9),  // MEM
             Constraint::Length(8),  // UPTIME
+            Constraint::Length(5),  // PROTO
+            Constraint::Length(7),  // PID
         ];
 
         let highlight_symbol = if self.mode == AppMode::Search {
@@ -153,7 +156,7 @@ impl App {
 
         let table = Table::new(rows, widths)
             .header(self.build_header_row())
-            .row_highlight_style(Style::default().fg(Colors::ACCENT).bold())
+            .row_highlight_style(Style::default().bg(Colors::SELECTED_BG).bold())
             .highlight_symbol(highlight_symbol);
 
         frame.render_stateful_widget(table, main_chunks[0], &mut self.table_state);
@@ -180,12 +183,12 @@ impl App {
 
         Row::new(vec![
             header_cell("PORT", SortBy::Port),
-            Cell::from("PROTO").style(base),
-            header_cell("PID", SortBy::Pid),
-            header_cell("USER", SortBy::User),
             header_cell("COMMAND", SortBy::Command),
+            header_cell("USER", SortBy::User),
             header_cell("MEM", SortBy::Memory),
             header_cell("UPTIME", SortBy::StartTime),
+            Cell::from("PROTO").style(base),
+            header_cell("PID", SortBy::Pid),
         ])
         .bottom_margin(1)
     }
@@ -243,12 +246,12 @@ impl App {
 
         Row::new(vec![
             cell(format!(":{}", p.port), SortBy::Port),
-            proto_cell,
-            cell(p.pid.clone(), SortBy::Pid),
-            cell(p.user.clone(), SortBy::User),
             cell(p.command.clone(), SortBy::Command),
+            cell(p.user.clone(), SortBy::User),
             cell(memory, SortBy::Memory),
             cell(uptime, SortBy::StartTime),
+            proto_cell,
+            cell(p.pid.clone(), SortBy::Pid),
         ])
     }
 
