@@ -34,4 +34,4 @@ MIT License - see [LICENSE](LICENSE) file.
 
 ## Acknowledgements
 
-Inspired by [gruyere 🧀](https://github.com/savannahostrowski/gruyere) by Savannah Ostrowski built in Go. This project was built as a learning experience to explore Rust.
+Inspired by [gruyère 🧀](https://github.com/savannahostrowski/gruyere) by Savannah Ostrowski built in Go. This project was built as a learning experience to explore Rust.
