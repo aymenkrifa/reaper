@@ -95,9 +95,16 @@
   @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
 
   /* ---- install ---- */
-  .cmd{font-size:14px;line-height:2;overflow-x:auto;white-space:pre}
+  .cmd-wrap{display:flex;align-items:flex-start;gap:14px}
+  .cmd{font-size:14px;line-height:2;overflow-x:auto;white-space:pre;flex:1;min-width:0}
   .cmd .comment{color:var(--ash)}
   .cmd .prompt{color:var(--green);user-select:none}
+  .copy{font-family:var(--mono);font-size:12.5px;color:var(--ash);background:none;
+       border:none;cursor:pointer;padding:0;margin-top:32px;flex:none;
+       white-space:nowrap;-webkit-user-select:none;user-select:none}
+  .copy:hover{color:var(--green)}
+  .copy[data-state=done]{color:var(--green)}
+  .copy[data-state=fail]{color:var(--red)}
 
   /* ---- links ---- */
   .links{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:58px}
@@ -106,6 +113,8 @@
   .links a:hover{border-color:var(--green);color:var(--green)}
 
   footer{text-align:center;color:var(--ash);font-size:12.5px;margin-top:46px}
+  footer a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+  footer a:hover{color:var(--green);border-bottom-color:var(--green)}
 </style>
 <script>
   // apply a pinned sky before first paint so there's no flash.
@@ -120,7 +129,6 @@
 
   <div class="masthead">
     <span>reaper · docs</span>
-    <span>linux · mit</span>
     <button class="sky-toggle" id="sky-toggle" aria-label="toggle color scheme"></button>
   </div>
 
@@ -145,11 +153,13 @@
 
   <div class="panel">
     <div class="title"><b>02</b> · install</div>
-    <div class="cmd"><span class="comment"># with cargo (rust 1.85+)</span>
-<span class="prompt">~$</span> cargo install --git https://github.com/aymenkrifa/reaper --locked</div>
+    <div class="cmd-wrap">
+      <div class="cmd"><span class="comment"># with cargo (rust 1.85+)</span>
+<span class="prompt">~$</span> <span id="install-cmd">cargo install --git https://github.com/aymenkrifa/reaper --locked</span></div>
+      <button class="copy" id="copy-btn" aria-label="copy install command">[copy]</button>
+    </div>
     <p class="note">linux only — reaper reads <code>/proc</code> directly. run with
     <code>sudo</code> to see and kill other users' processes.</p>
-    <div class="hints"><k>[rust]</k> built &nbsp; <k>[mit]</k> licensed</div>
   </div>
 
   <div class="links">
@@ -157,7 +167,7 @@
     <a href="https://github.com/aymenkrifa/reaper/releases">releases</a>
   </div>
 
-  <footer>mit · built in rust · inspired by gruyère 🧀</footer>
+  <footer>made by <a href="https://aymenkrifa.com">aymen krifa</a>, inspired by gruyère 🧀</footer>
 </div>
 <script>
   (function(){
@@ -176,6 +186,45 @@
     });
     mq.addEventListener('change', label);
     label();
+  })();
+
+  (function(){
+    var btn = document.getElementById('copy-btn');
+    var cmd = document.getElementById('install-cmd');
+    var timer;
+    function flash(state, text){
+      clearTimeout(timer);
+      btn.dataset.state = state;
+      btn.textContent = text;
+      timer = setTimeout(function(){
+        btn.removeAttribute('data-state');
+        btn.textContent = '[copy]';
+      }, 1600);
+    }
+    btn.addEventListener('click', function(){
+      var text = cmd.textContent.trim();
+      // clipboard api needs a secure context; fall back to a manual selection
+      // so the command is still gettable over plain http or in older browsers
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text)
+          .then(function(){ flash('done', '[copied]'); })
+          .catch(function(){ select(); });
+      } else {
+        select();
+      }
+      function select(){
+        try {
+          var r = document.createRange();
+          r.selectNodeContents(cmd);
+          var s = getSelection();
+          s.removeAllRanges();
+          s.addRange(r);
+          flash('fail', '[press ⌘/ctrl+c]');
+        } catch (e) {
+          flash('fail', '[copy failed]');
+        }
+      }
+    });
   })();
 </script>
 </body>
