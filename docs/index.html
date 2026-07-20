@@ -83,6 +83,31 @@
        background:var(--bg);padding:0 10px;font-size:12.5px;letter-spacing:.06em;
        color:var(--ash)}
   .panel > .title b{color:var(--green);font-weight:700}
+  /* the keystroke driving the demo, notched into the top edge opposite the
+     title so each frame reads as a consequence of a key, not a jump cut.
+     it fills and pops on press — a struck key, not a caption. */
+  .panel > .keycap{position:absolute;top:0;right:16px;z-index:1;
+       transform:translateY(-50%);transform-origin:50% 50%;
+       background:var(--bg);border:1px solid var(--line);border-radius:3px;
+       padding:2px 11px;font-family:var(--mono);font-size:13.5px;font-weight:700;
+       letter-spacing:.04em;color:var(--green);opacity:0}
+  .panel > .keycap.hit{animation:keystrike 1.15s cubic-bezier(.2,.9,.25,1) forwards}
+  @keyframes keystrike{
+    0%  {opacity:0;transform:translateY(-50%) scale(.8)}
+    12% {opacity:1;transform:translateY(-50%) scale(1.18);
+         background:var(--green);border-color:var(--green);color:var(--bg);
+         box-shadow:0 0 0 0 rgba(63,221,120,.55)}
+    38% {opacity:1;transform:translateY(-50%) scale(1);
+         background:var(--green);border-color:var(--green);color:var(--bg);
+         box-shadow:0 0 0 9px rgba(63,221,120,0)}
+    72% {opacity:1;background:var(--green);border-color:var(--green);color:var(--bg)}
+    100%{opacity:0;transform:translateY(-50%) scale(1);
+         background:var(--bg);border-color:var(--line);color:var(--green)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .panel > .keycap.hit{animation:none;opacity:1;
+        background:var(--green);border-color:var(--green);color:var(--bg)}
+  }
   .panel > .hints{position:absolute;bottom:0;left:18px;transform:translateY(50%);
        background:var(--bg);padding:0 10px;font-size:12px;color:var(--ash);
        display:flex;gap:15px;width:fit-content;max-width:calc(100% - 36px);
@@ -93,12 +118,20 @@
   .panel .note code{font-family:var(--mono);font-size:.9em;color:var(--ink)}
 
   /* ---- the tui render ---- */
-  .tui{font-size:14px;line-height:clamp(19px,2.5vh,27px);overflow-x:auto;white-space:pre}
-  .tui .hdr{color:var(--ash)}
+  .tui{font-size:14px;line-height:clamp(22px,3vh,31px);overflow-x:auto;white-space:pre}
+  .tui .hdr,.tui .dim{color:var(--ash)}
+  /* green owns selection and success, amber the confirm prompt, red the
+     kill verb — the semantic roles from the chart, §3. */
   .tui .sel{color:var(--green);font-weight:500}
-  .tui .state{color:var(--green)}
+  .tui .tbl{display:block}
+  /* the real tui parks this band at the bottom of the terminal, well clear of
+     the table; the rule stands in for that distance in a short panel */
+  .tui .band{display:block;margin-top:.9em;padding-top:.85em;
+       border-top:1px solid var(--line)}
+  .tui .port{color:var(--ink)}
   .tui .confirm{color:var(--amber)}
-  .tui .confirm kbd{font:inherit;color:var(--red);font-weight:700}
+  .tui .confirm b{color:var(--red);font-weight:700}
+  .tui .ok{color:var(--green);font-weight:500}
   .cursor{display:inline-block;width:.55em;height:1.05em;background:var(--green);
        vertical-align:-.18em;animation:blink 1.15s steps(1,end) infinite}
   @keyframes blink{50%{opacity:0}}
@@ -128,7 +161,7 @@
     .hero p{font-size:13.5px}
     .panel{margin-top:13px;padding:13px 22px 12px}
     .panel .note{font-size:13.5px;margin-top:9px}
-    .tui{font-size:13px;line-height:17px}
+    .tui{font-size:13px;line-height:20px}
     .cmd{font-size:13px;line-height:18px}
     footer{margin-top:16px}
   }
@@ -199,14 +232,20 @@
 
   <div class="panel">
     <div class="title"><b>01</b> · the tui</div>
-    <div class="tui"><span class="hdr">  PID     COMMAND   PORT    STATE</span>
-<span class="sel">▸ 48213   node      :3000   LISTEN </span><span class="cursor"></span>
-  512     postgres  :5432   <span class="state">LISTEN</span>
-  9021    python    :8000   <span class="state">LISTEN</span>
-
-<span class="confirm">  kill node (48213)? <kbd>[y/n]</kbd></span></div>
-    <p class="note">three listening, one about to not be. search with <code>/</code>,
-    sort with <code>s</code>, kill with <code>⏎</code> — always behind a confirm.</p>
+    <div class="keycap" id="keycap" aria-hidden="true"></div>
+    <!-- static first frame; the script below replays the kill flow over it,
+         so the panel still reads correctly with javascript disabled -->
+    <div class="tui" id="tui"><span class="tbl"><span class="dim">3/23 processes (20 restricted hidden — press 'a')</span>
+<span class="hdr">  PORT ↓   USER      MEM       UPTIME    PROTO    PID      COMMAND</span>
+<span class="sel">▶ :3000    aymen     52.1MB    2h        TCP      48213    node</span>
+  <span class="port">:5432</span>    <span class="dim">postgres  89.4MB    3d        TCP</span>      1204     postgres
+  <span class="port">:8000</span>    <span class="dim">aymen     19.8MB    45s       TCP</span>      9021     python3 -m http.server</span>
+<span class="band"><span class="dim">▌ node
+↳ ~/projects/api</span>
+ </span></div>
+    <p class="note">select a port, press <code>⏎</code>, confirm — that's the whole
+    loop. search with <code>/</code>, sort with <code>s</code>. nothing dies
+    without a yes.</p>
     <div class="hints"><span><k>[↑↓]</k> navigate</span><span><k>[/]</k> search</span><span><k>[⏎]</k> kill</span><span><k>[q]</k> quit</span></div>
   </div>
 
@@ -240,6 +279,129 @@
     });
     mq.addEventListener('change', label);
     label();
+  })();
+
+  // replays a real reaper session: navigate down to :8000, press enter, then
+  // confirm. every string here — column order, the "Kill … pid … ?" prompt,
+  // the "✓ Killed" line, the process count dropping — is taken from an actual
+  // run killing a throwaway listener, not invented.
+  (function(){
+    var el = document.getElementById('tui');
+    if (!el) return;
+
+    var ROWS = [
+      {port:':3000', user:'aymen   ', mem:'52.1MB', up:'2h ', pid:'48213', cmd:'node', cwd:'~/projects/api'},
+      {port:':5432', user:'postgres', mem:'89.4MB', up:'3d ', pid:'1204 ', cmd:'postgres', cwd:'~'},
+      {port:':8000', user:'aymen   ', mem:'19.8MB', up:'45s', pid:'9021 ', cmd:'python3 -m http.server', cwd:'~/testing'}
+    ];
+    var TARGET = 2; // the row the demo kills
+
+    function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+    function pad(s,n){ s = String(s); return s + ' '.repeat(Math.max(0, n - s.length)); }
+
+    function row(r, selected){
+      var line = (selected ? '▶ ' : '  ') + pad(r.port,9) + pad(r.user,10) +
+                 pad(r.mem,10) + pad(r.up,10) + pad('TCP',9) + pad(r.pid,9) + r.cmd;
+      return selected ? '<span class="sel">' + esc(line) + '</span>'
+                      : '  <span class="port">' + esc(r.port) + '</span>' +
+                        '<span class="dim">' + esc(line.slice(2 + r.port.length)) + '</span>';
+    }
+
+    // state -> the exact screen reaper would be showing. the real tui anchors
+    // the detail band to the bottom of the terminal, 14 blank rows below the
+    // table; a panel can't spend that, so the gap becomes a rule instead.
+    function screen(st){
+      var live = ROWS.filter(function(r,i){ return !(st.killed && i === TARGET); });
+      var count = st.killed ? '2/22' : '3/23';
+      var sel = st.killed ? 0 : st.sel;
+
+      var table = ['<span class="dim">' + count + ' processes (20 restricted hidden — press \'a\')</span>',
+                   '<span class="hdr">  PORT ↓   USER      MEM       UPTIME    PROTO    PID      COMMAND</span>'];
+      live.forEach(function(r,i){ table.push(row(r, i === sel)); });
+
+      var cur = live[sel];
+      var band = ['<span class="dim">▌ ' + esc(cur.cmd) + '</span>'];
+      if (st.mode === 'confirm') {
+        var t = ROWS[TARGET];
+        band.push('<span class="confirm"><b>Kill</b> ' + esc(t.port) + '  ' + esc(t.cmd) +
+                  '  pid ' + esc(t.pid.trim()) + ' ?</span>');
+        band.push('<span class="confirm"><b>[y/Enter]</b> kill        [n/Esc] cancel</span>');
+      } else if (st.killed) {
+        var k = ROWS[TARGET];
+        band.push('<span class="ok">✓ Killed ' + esc(k.port) + '  ' + esc(k.cmd) +
+                  '  pid ' + esc(k.pid.trim()) + '</span>');
+      } else {
+        band.push('<span class="dim">↳ ' + esc(cur.cwd) + '</span>');
+      }
+
+      // hold both blocks at a fixed line count so the panel never changes
+      // height. pad with a space, not '': a trailing empty line in
+      // white-space:pre collapses and contributes no height.
+      while (table.length < 5) table.push(' ');
+      while (band.length < 3) band.push(' ');
+      return '<span class="tbl">' + table.join('\n') + '</span>' +
+             '<span class="band">' + band.join('\n') + '</span>';
+    }
+
+    // press: the key that causes this frame, shown on the panel edge
+    var STEPS = [
+      {state:{sel:0, mode:'list'},               hold:2400},
+      {state:{sel:1, mode:'list'},               hold:1500, press:'[↓]'},
+      {state:{sel:2, mode:'list'},               hold:1800, press:'[↓]'},
+      {state:{sel:2, mode:'confirm'},            hold:2800, press:'[⏎]'},
+      {state:{sel:2, mode:'list', killed:true},  hold:4000, press:'[y]'}
+    ];
+
+    var cap = document.getElementById('keycap');
+    var i = 0, timer = null, capTimer = null, running = false;
+
+    function flashKey(k){
+      if (!cap) return;
+      clearTimeout(capTimer);
+      if (!k) { cap.classList.remove('hit'); cap.textContent = ''; return; }
+      cap.textContent = k;
+      // restart the transition even when the same key repeats
+      cap.classList.remove('hit');
+      void cap.offsetWidth;
+      cap.classList.add('hit');
+      capTimer = setTimeout(function(){ cap.classList.remove('hit'); }, 1150);
+    }
+
+    function tick(){
+      var step = STEPS[i];
+      flashKey(step.press);
+      el.innerHTML = screen(step.state);
+      var hold = step.hold;
+      i = (i + 1) % STEPS.length;
+      timer = setTimeout(tick, hold);
+    }
+    function start(){ if (!running){ running = true; tick(); } }
+    function stop(){ running = false; clearTimeout(timer); clearTimeout(capTimer); }
+
+    // honour reduced-motion: show the outcome, never loop
+    var rm = matchMedia('(prefers-reduced-motion: reduce)');
+    function apply(){
+      stop();
+      if (rm.matches) { i = 0; flashKey(null); el.innerHTML = screen({sel:0, mode:'list'}); }
+      else { i = 0; start(); }
+    }
+    rm.addEventListener('change', apply);
+
+    // don't burn cycles animating a panel nobody is looking at
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function(es){
+        es.forEach(function(e){
+          if (rm.matches) return;
+          if (e.isIntersecting) start(); else stop();
+        });
+      }, {threshold: 0.15}).observe(el);
+    }
+    document.addEventListener('visibilitychange', function(){
+      if (rm.matches) return;
+      if (document.hidden) stop(); else start();
+    });
+
+    apply();
   })();
 
   // the version in the markup is a fallback; refresh it from the releases
