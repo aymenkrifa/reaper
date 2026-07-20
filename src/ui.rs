@@ -321,8 +321,8 @@ impl App {
     }
 
     fn render_header(&self, frame: &mut Frame, area: Rect) {
-        let title_text = "💀 Reaper";
-        let desc_text = "A simple port management & process monitoring";
+        let title_text = "reaper";
+        let desc_text = "a linux tui for listing & killing listening ports";
         let process_count = self.filtered_processes.len();
         let total_count = self.processes.len();
         let hidden = self.restricted_hidden_count();
@@ -442,16 +442,16 @@ impl App {
         let help_text = match self.mode {
             AppMode::ProcessList => {
                 if self.search_query.is_empty() {
-                    "↑/↓: Navigate • Enter: Kill • /: Search • s: Sort • a: Show restricted • r: Refresh • q/Esc: Quit"
+                    "↑/↓: Navigate • ⏎: Kill • /: Search • s/1-7: Sort • a: Restricted • r: Refresh • q/Esc: Quit"
                 } else {
                     &format!(
-                        "Search: \"{}\" • Esc: Clear search • ↑/↓: Navigate • Enter: Kill",
+                        "Search: \"{}\" • Esc: Clear search • ↑/↓: Navigate • ⏎: Kill",
                         self.search_query
                     )
                 }
             }
             AppMode::ConfirmKill => unreachable!("handled above"),
-            AppMode::Search => "Type to search • Enter: Apply • Esc: Cancel",
+            AppMode::Search => "Type to search • ⏎: Apply • Esc: Cancel",
         };
 
         frame.render_widget(

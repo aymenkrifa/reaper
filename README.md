@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/reaper-banner.svg" alt="reaper — a linux tui for listing and killing listening ports" width="820">
+  <img src="docs/assets/reaper-banner.svg" alt="reaper — a linux tui for listing and killing listening ports" width="820">
   <p><a href="https://reaper.aymenkrifa.com"><b>reaper.aymenkrifa.com</b></a></p>
 </div>
 
