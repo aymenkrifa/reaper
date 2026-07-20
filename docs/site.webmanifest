@@ -1,0 +1,14 @@
+{
+  "name": "reaper",
+  "short_name": "reaper",
+  "description": "a linux tui for listing and killing listening ports",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#0C0F0D",
+  "theme_color": "#0C0F0D",
+  "icons": [
+    { "src": "assets/reaper-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/reaper-icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/reaper-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
