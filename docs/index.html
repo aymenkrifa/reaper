@@ -5,7 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>reaper — a linux tui for listing and killing listening ports</title>
 <meta name="description" content="a linux tui for listing and killing listening ports. built in rust, mit-licensed.">
-<link rel="icon" href="assets/reaper-icon.svg">
+<!-- an svg icon alone is enough for desktop chrome but not for the google app,
+     android webview, or ios, which need a raster or a manifest entry -->
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" type="image/svg+xml" href="assets/reaper-icon.svg">
+<link rel="apple-touch-icon" href="assets/reaper-icon-180.png">
+<link rel="manifest" href="site.webmanifest">
+<meta name="theme-color" content="#0C0F0D">
 <meta property="og:title" content="reaper">
 <meta property="og:description" content="a linux tui for listing and killing listening ports">
 <meta property="og:image" content="https://reaper.aymenkrifa.com/assets/reaper-social-preview.png">
@@ -43,7 +49,7 @@
      rather than pushing the footer past the fold. */
   body{background:var(--bg);color:var(--ink);font-family:var(--mono);
        font-size:16px;line-height:1.7;
-       padding:clamp(10px,2vh,28px) 20px clamp(12px,2vh,30px);
+       padding:clamp(10px,2vh,28px) 20px clamp(10px,1.7vh,30px);
        min-height:100vh;display:flex;
        -webkit-font-smoothing:antialiased}
   .page{max-width:760px;margin:auto;width:100%}
@@ -52,15 +58,16 @@
   .masthead{display:flex;justify-content:space-between;align-items:center;gap:16px;
        font-size:12.5px;letter-spacing:.04em;color:var(--ash);
        border-bottom:1px solid var(--line);padding-bottom:9px}
-  .mast-right{display:flex;align-items:center;gap:18px}
   .masthead a{color:var(--ash);text-decoration:none}
   .masthead a:hover{color:var(--green)}
   .sky-toggle{font-family:var(--mono);font-size:12.5px;letter-spacing:.04em;
-       color:var(--ash);background:none;border:none;cursor:pointer;padding:0}
+       color:var(--ash);background:none;border:none;cursor:pointer;padding:0;
+       display:inline-flex;align-items:center;gap:7px;line-height:1}
+  .sky-toggle svg{flex:none;display:block}
   .sky-toggle:hover{color:var(--green)}
 
   /* ---- hero ---- */
-  .hero{text-align:center;padding:clamp(10px,3vh,50px) 0 clamp(8px,2.2vh,38px)}
+  .hero{text-align:center;padding:clamp(10px,2.7vh,46px) 0 clamp(8px,1.9vh,32px)}
   /* drive the lockup off height — the aspect is fixed, so this caps the
      vertical budget directly instead of inferring it from the width */
   .hero img{height:clamp(40px,9vh,80px);width:auto;max-width:84%}
@@ -75,8 +82,9 @@
   }
 
   /* ---- panel grammar ----
-     every branded surface is a tui panel: thin ash border, title notched into
-     the top edge, key hints along the bottom. graphic chart §5. */
+     every branded surface is a tui panel: thin ash border with the title
+     notched into the top edge. graphic chart §5. the key hints live inside
+     the screen instead, because that is where reaper renders them. */
   .panel{position:relative;border:1px solid var(--line);background:var(--panel);
        margin-top:clamp(16px,3.6vh,50px);padding:clamp(15px,2.8vh,30px) 24px clamp(14px,2.6vh,28px)}
   .panel > .title{position:absolute;top:0;left:18px;transform:translateY(-50%);
@@ -108,17 +116,14 @@
     .panel > .keycap.hit{animation:none;opacity:1;
         background:var(--green);border-color:var(--green);color:var(--bg)}
   }
-  .panel > .hints{position:absolute;bottom:0;left:18px;transform:translateY(50%);
-       background:var(--bg);padding:0 10px;font-size:12px;color:var(--ash);
-       display:flex;gap:15px;width:fit-content;max-width:calc(100% - 36px);
-       white-space:nowrap}
-  .panel > .hints k{color:var(--ink);font-weight:500}
-  .panel .note{font-family:var(--sans);font-size:14.5px;color:var(--ash);
-       margin-top:clamp(10px,1.8vh,20px);line-height:1.6}
+  .panel .note{font-family:var(--sans);font-size:14px;color:var(--ash);
+       margin-top:clamp(11px,1.9vh,19px);line-height:1.6;opacity:.88}
   .panel .note code{font-family:var(--mono);font-size:.9em;color:var(--ink)}
 
   /* ---- the tui render ---- */
-  .tui{font-size:14px;line-height:clamp(22px,3vh,31px);overflow-x:auto;white-space:pre}
+  .tui{font-size:14px;line-height:clamp(22px,3vh,31px);overflow-x:auto;white-space:pre;
+       background:var(--bg);border:1px solid var(--line);border-radius:2px;
+       padding:clamp(9px,1.25vh,13px) clamp(12px,1.6vw,18px)}
   .tui .hdr,.tui .dim{color:var(--ash)}
   /* green owns selection and success, amber the confirm prompt, red the
      kill verb — the semantic roles from the chart, §3. */
@@ -126,8 +131,9 @@
   .tui .tbl{display:block}
   /* the real tui parks this band at the bottom of the terminal, well clear of
      the table; the rule stands in for that distance in a short panel */
-  .tui .band{display:block;margin-top:.9em;padding-top:.85em;
+  .tui .band{display:block;margin-top:.7em;padding-top:.65em;
        border-top:1px solid var(--line)}
+  .tui .help{display:block;margin-top:.55em;color:var(--ash);opacity:.85}
   .tui .port{color:var(--ink)}
   .tui .confirm{color:var(--amber)}
   .tui .confirm b{color:var(--red);font-weight:700}
@@ -149,7 +155,7 @@
   .copy[data-state=done]{color:var(--green)}
   .copy[data-state=fail]{color:var(--red)}
 
-  footer{text-align:center;color:var(--ash);font-size:12.5px;margin-top:clamp(18px,4vh,54px)}
+  footer{text-align:center;color:var(--ash);font-size:12.5px;margin-top:clamp(16px,3.6vh,54px)}
   footer a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
   footer a:hover{color:var(--green);border-bottom-color:var(--green)}
 
@@ -168,8 +174,7 @@
 
   /* phones: readability beats the one-frame fit. let the page run as long as
      it needs and spend the space on type and breathing room — a short scroll
-     reads better than a squeezed screen. the notched title and the hints each
-     straddle a panel edge, so the gap between panels has to clear both. */
+     reads better than a squeezed screen. */
   @media (max-width:560px){
     body{padding:18px 18px 30px;min-height:0;display:block}
     .page{margin:0 auto}
@@ -177,10 +182,8 @@
     .hero img{height:58px}
     .hero p{font-size:14px;margin-top:14px;line-height:1.6}
     .panel{margin-top:42px;padding:22px 18px 20px}
-    .panel > .title,.panel > .hints{left:12px}
+    .panel > .title{left:12px}
     .panel > .title{font-size:12px}
-    .panel > .hints{font-size:11.5px;gap:12px;padding:0 8px;
-        max-width:calc(100% - 24px)}
     .panel .note{font-size:14px;margin-top:16px;line-height:1.65}
     .tui{font-size:13.5px;line-height:24px}
     /* wrap the command rather than clipping it mid-url */
@@ -190,19 +193,6 @@
     footer{margin-top:34px;font-size:12.5px;line-height:1.7}
   }
 
-  /* the hint row is one unbreakable line, so it sets its own floor: measured
-     at 322px wide, against (viewport - 60px) of room. step it down once so it
-     still clears at 375 and 360. */
-  @media (max-width:389px){
-    .panel > .hints{font-size:10.5px;gap:8px}
-  }
-  /* narrower than that, no legible size fits on the border — drop the hints
-     into the panel as a normal wrapping line instead of clipping them. */
-  @media (max-width:345px){
-    .panel > .hints{position:static;transform:none;background:none;padding:0;
-        margin-top:15px;max-width:none;flex-wrap:wrap;gap:10px;
-        font-size:11.5px;white-space:normal}
-  }
 
 </style>
 <script>
@@ -217,11 +207,8 @@
 <div class="page">
 
   <div class="masthead">
-    <span>reaper · <a href="https://github.com/aymenkrifa/reaper/releases" target="_blank" rel="noopener noreferrer" id="version">v0.3.0</a></span>
-    <span class="mast-right">
-      <a href="https://github.com/aymenkrifa/reaper" target="_blank" rel="noopener noreferrer">github</a>
-      <button class="sky-toggle" id="sky-toggle" aria-label="toggle color scheme"></button>
-    </span>
+    <span><a href="https://github.com/aymenkrifa/reaper" target="_blank" rel="noopener noreferrer">github</a> · <a href="https://github.com/aymenkrifa/reaper/releases" target="_blank" rel="noopener noreferrer" id="version">v0.3.0</a></span>
+    <button class="sky-toggle" id="sky-toggle" aria-label="toggle color scheme"></button>
   </div>
 
   <div class="hero">
@@ -242,11 +229,10 @@
   <span class="port">:8000</span>    <span class="dim">aymen     19.8MB    45s       TCP</span>      9021     python3 -m http.server</span>
 <span class="band"><span class="dim">▌ node
 ↳ ~/projects/api</span>
- </span></div>
+ </span><span class="help">↑/↓: Navigate • Enter: Kill • /: Search • s: Sort • q/Esc: Quit</span></div>
     <p class="note">select a port, press <code>⏎</code>, confirm — that's the whole
     loop. search with <code>/</code>, sort with <code>s</code>. nothing dies
     without a yes.</p>
-    <div class="hints"><span><k>[↑↓]</k> navigate</span><span><k>[/]</k> search</span><span><k>[⏎]</k> kill</span><span><k>[q]</k> quit</span></div>
   </div>
 
   <div class="panel">
@@ -260,7 +246,7 @@
     <code>sudo</code> to see and kill other users' processes.</p>
   </div>
 
-  <footer>made by <a href="https://aymenkrifa.com" target="_blank" rel="noopener noreferrer">aymen krifa</a>, inspired by <a href="https://github.com/savannahostrowski/gruyere" target="_blank" rel="noopener noreferrer">gruyère</a></footer>
+  <footer>made by <a href="https://aymenkrifa.com" target="_blank" rel="noopener noreferrer">aymen krifa</a>, inspired by <a href="https://github.com/savannahostrowski/gruyere" target="_blank" rel="noopener noreferrer">gruyère</a> and built with rust.</footer>
 </div>
 <script>
   (function(){
@@ -269,8 +255,22 @@
     function effective(){
       return document.documentElement.dataset.theme || (mq.matches ? 'dark' : 'light');
     }
-    // no emoji — glyph coverage varies by system and falls back to tofu
-    function label(){ btn.textContent = effective() === 'dark' ? '→ light' : '→ dark'; }
+    // inline svg, not emoji: glyph coverage varies by device and falls back
+    // to tofu. stroke follows currentColor so it tracks the hover state.
+    var SUN  = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" ' +
+               'stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+               '<circle cx="12" cy="12" r="4.2"/><path d="M12 1.8v2.4M12 19.8v2.4' +
+               'M4.6 4.6l1.7 1.7M17.7 17.7l1.7 1.7M1.8 12h2.4M19.8 12h2.4' +
+               'M4.6 19.4l1.7-1.7M17.7 6.3l1.7-1.7"/></svg>';
+    var MOON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" ' +
+               'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+               'stroke-linejoin="round" aria-hidden="true">' +
+               '<path d="M20.8 13.1A8.6 8.6 0 1 1 10.9 3.2a6.7 6.7 0 0 0 9.9 9.9z"/></svg>';
+    function label(){
+      var dark = effective() === 'dark';
+      btn.innerHTML = (dark ? SUN : MOON) + '<span>' + (dark ? 'light' : 'dark') + '</span>';
+      btn.setAttribute('aria-label', dark ? 'switch to light' : 'switch to dark');
+    }
     btn.addEventListener('click', function(){
       var next = effective() === 'dark' ? 'light' : 'dark';
       document.documentElement.dataset.theme = next;
@@ -295,6 +295,8 @@
       {port:':8000', user:'aymen   ', mem:'19.8MB', up:'45s', pid:'9021 ', cmd:'python3 -m http.server', cwd:'~/testing'}
     ];
     var TARGET = 2; // the row the demo kills
+    // reaper's own help line, trimmed to the keys this demo uses
+    var HELP = '↑/↓: Navigate • Enter: Kill • /: Search • s: Sort • q/Esc: Quit';
 
     function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
     function pad(s,n){ s = String(s); return s + ' '.repeat(Math.max(0, n - s.length)); }
@@ -340,7 +342,8 @@
       while (table.length < 5) table.push(' ');
       while (band.length < 3) band.push(' ');
       return '<span class="tbl">' + table.join('\n') + '</span>' +
-             '<span class="band">' + band.join('\n') + '</span>';
+             '<span class="band">' + band.join('\n') + '</span>' +
+             '<span class="help">' + HELP + '</span>';
     }
 
     // press: the key that causes this frame, shown on the panel edge
