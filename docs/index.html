@@ -85,8 +85,8 @@
   .panel > .title b{color:var(--green);font-weight:700}
   .panel > .hints{position:absolute;bottom:0;left:18px;transform:translateY(50%);
        background:var(--bg);padding:0 10px;font-size:12px;color:var(--ash);
-       width:fit-content;max-width:calc(100% - 36px);white-space:nowrap;
-       overflow:hidden;text-overflow:ellipsis}
+       display:flex;gap:15px;width:fit-content;max-width:calc(100% - 36px);
+       white-space:nowrap}
   .panel > .hints k{color:var(--ink);font-weight:500}
   .panel .note{font-family:var(--sans);font-size:14.5px;color:var(--ash);
        margin-top:clamp(10px,1.8vh,20px);line-height:1.6}
@@ -132,6 +132,35 @@
     .cmd{font-size:13px;line-height:18px}
     footer{margin-top:16px}
   }
+
+  /* narrow screens: the notched title and the hints both straddle a panel
+     edge, so adjacent panels need a wider gap than the vh rhythm gives them
+     or the two labels nearly touch. */
+  @media (max-width:560px){
+    .panel{margin-top:36px;padding-left:18px;padding-right:18px}
+    .panel > .title,.panel > .hints{left:12px}
+    .panel > .hints{font-size:10.5px;gap:10px;padding:0 8px;
+        max-width:calc(100% - 24px)}
+    /* wrap the command rather than clipping it mid-url */
+    .cmd{white-space:pre-wrap;overflow-wrap:anywhere}
+    .cmd-wrap{flex-direction:column;gap:6px}
+    .copy{align-self:flex-start}
+  }
+
+  /* small phones are both narrow and short: the wrapped command costs extra
+     lines exactly where there is least room, so step everything down once
+     more. keeps the panel gap wide enough that the labels still clear. */
+  @media (max-width:560px) and (max-height:700px){
+    .hero{padding:8px 0 6px}
+    .hero img{height:42px}
+    .hero p{font-size:12.5px}
+    .panel{margin-top:26px;padding:12px 16px 11px}
+    .panel .note{font-size:12.5px;margin-top:8px}
+    .tui{font-size:12px;line-height:16px}
+    .cmd{font-size:12px;line-height:16px}
+    .panel > .hints{font-size:10px;gap:8px}
+    footer{font-size:11.5px;margin-top:12px}
+  }
 </style>
 <script>
   // apply a pinned sky before first paint so there's no flash.
@@ -145,7 +174,7 @@
 <div class="page">
 
   <div class="masthead">
-    <span>reaper · docs</span>
+    <span>reaper · <a href="https://github.com/aymenkrifa/reaper/releases" target="_blank" rel="noopener noreferrer" id="version">v0.3.0</a></span>
     <span class="mast-right">
       <a href="https://github.com/aymenkrifa/reaper" target="_blank" rel="noopener noreferrer">github</a>
       <button class="sky-toggle" id="sky-toggle" aria-label="toggle color scheme"></button>
@@ -168,7 +197,7 @@
 <span class="confirm">  kill node (48213)? <kbd>[y/n]</kbd></span></div>
     <p class="note">three listening, one about to not be. search with <code>/</code>,
     sort with <code>s</code>, kill with <code>⏎</code> — always behind a confirm.</p>
-    <div class="hints"><k>[↑↓]</k> navigate &nbsp; <k>[/]</k> search &nbsp; <k>[⏎]</k> kill &nbsp; <k>[q]</k> quit</div>
+    <div class="hints"><span><k>[↑↓]</k> navigate</span><span><k>[/]</k> search</span><span><k>[⏎]</k> kill</span><span><k>[q]</k> quit</span></div>
   </div>
 
   <div class="panel">
@@ -201,6 +230,28 @@
     });
     mq.addEventListener('change', label);
     label();
+  })();
+
+  // the version in the markup is a fallback; refresh it from the releases
+  // api so cutting a tag updates the site without a redeploy. cached for a
+  // day, since the unauthenticated api allows only 60 calls an hour per ip.
+  (function(){
+    var el = document.getElementById('version');
+    var KEY = 'reaper-latest-release';
+    var DAY = 86400000;
+    try {
+      var hit = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (hit && Date.now() - hit.at < DAY && hit.tag) { el.textContent = hit.tag; return; }
+    } catch (e) { /* unparseable cache — fall through and refetch */ }
+
+    fetch('https://api.github.com/repos/aymenkrifa/reaper/releases/latest')
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function(d){
+        if (!d || !d.tag_name) return;
+        el.textContent = d.tag_name;
+        try { localStorage.setItem(KEY, JSON.stringify({tag: d.tag_name, at: Date.now()})); } catch (e) {}
+      })
+      .catch(function(){ /* offline, rate-limited, or no release — keep the fallback */ });
   })();
 
   (function(){
