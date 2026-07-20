@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>reaper — graphic chart · the harvest, dusk edition</title>
+<title>reaper — graphic chart · the harvest</title>
 <link rel="icon" href="favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,6 +17,20 @@
     --disp:'Bricolage Grotesque',system-ui,sans-serif;
     --sans:'Inter',system-ui,sans-serif;
     --mono:'JetBrains Mono',ui-monospace,monospace;
+  }
+  /* dusk sky — page chrome only; specimen stages (.paper/.night) keep
+     their fixed surfaces because they demonstrate both skies on purpose */
+  @media (prefers-color-scheme: dark){
+    :root{
+      --flour:#211B12; --panel:#2A2216;
+      --soil:#EFE5CC; --body:#D9CCAA; --straw:#A79262;
+      --line:rgba(239,229,204,.22);
+    }
+    kbd{background:#17120999}
+    code{background:#171209;color:#EFE5CC}
+    .vocab td{border-bottom-color:rgba(239,229,204,.13)}
+    .files td{border-bottom-color:rgba(239,229,204,.13)}
+    .busy{background:repeating-linear-gradient(45deg,#3A2F1D 0 12px,#211B12 12px 24px)!important}
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--flour);color:var(--soil);font-family:var(--sans);
@@ -134,7 +148,7 @@
     <a href="./" style="color:var(--straw);text-decoration:none">&larr; reaper docs</a>
   </div>
   <div class="rulepair"></div>
-  <div class="masthead"><span>REAPER · GRAPHIC CHART</span><span>"THE HARVEST"</span><span>DAYLIGHT ED.</span></div>
+  <div class="masthead"><span>REAPER · GRAPHIC CHART</span><span>"THE HARVEST"</span><span>DAYLIGHT · DUSK</span></div>
 
   <div class="hero">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 258" width="128" style="height:auto" role="img" aria-label="reaper">

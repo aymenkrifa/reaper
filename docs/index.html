@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>reaper — a tidy harvest of listening ports</title>
-<meta name="description" content="reaper is a small Linux terminal UI for tending your ports: see what's listening on which port, and reap it when it's time.">
+<title>reaper — a simple Linux TUI for listening ports</title>
+<meta name="description" content="reaper is a simple Linux terminal UI for listing and reaping listening ports.">
 <link rel="icon" href="favicon.ico">
-<meta property="og:title" content="reaper — a tidy harvest of listening ports">
-<meta property="og:description" content="A small Linux TUI for tending your ports: see what's listening, and reap it when it's time.">
+<meta property="og:title" content="reaper — a simple Linux TUI for listening ports">
+<meta property="og:description" content="See what's listening on which port, and reap it — a simple Linux TUI.">
 <meta property="og:image" content="https://reaper.aymenkrifa.com/assets/reaper-social-preview.png">
 <meta property="og:url" content="https://reaper.aymenkrifa.com/">
 <meta name="twitter:card" content="summary_large_image">
@@ -85,32 +85,32 @@
 <div class="page">
 
   <div class="rulepair"></div>
-  <div class="masthead"><span>REAPER · DOCS</span><span>"THE HARVEST"</span><span>LINUX · MIT</span></div>
+  <div class="masthead"><span>REAPER · DOCS</span><span>LINUX · MIT</span></div>
 
   <div class="hero">
     <img src="assets/reaper-mark.svg" alt="reaper wheat mark — one grain detached" width="104">
     <h1>reaper<span class="grain-dot" aria-hidden="true"></span></h1>
-    <div class="sub">a tidy harvest of listening ports</div>
+    <div class="sub">a simple Linux TUI for listing and reaping listening ports</div>
   </div>
 
-  <h2><span class="no">01</span> · the field</h2>
+  <h2><span class="no">01</span> · the tui</h2>
   <div class="rulepair"></div>
   <div class="term"><span class="g">~$</span> reaper
-<span class="d">the field, this evening — 4 listening</span>
+<span class="d">4 listening</span>
 
-  PID    COMMAND   PORT     SOWN
-<span class="w">▸ 48213  node      :3000    3d ago</span>    <span class="p">reap? [y/n]</span> y
-  512    postgres  :5432    12d ago
-  9021   python    :8000    4h ago
+  PID    COMMAND   PORT     AGE
+<span class="w">▸ 48213  node      :3000    3d</span>     <span class="p">reap? [y/n]</span> y
+  512    postgres  :5432    12d
+  9021   python    :8000    4h
 
-<span class="g">✓ :3000 reaped.</span> <span class="d">3 still listening. the field is tidy.</span></div>
+<span class="g">✓ :3000 reaped</span> <span class="d">— 3 still listening</span></div>
   <p class="note">Search with <code>/</code>, sort with <code>s</code> or <code>1–7</code>, reap with <code>Enter</code> — always with confirmation.</p>
 
   <h2><span class="no">02</span> · install</h2>
   <div class="rulepair"></div>
   <div class="term"><span class="d"># with cargo (Rust 1.85+)</span>
 <span class="g">~$</span> cargo install --git https://github.com/aymenkrifa/reaper --locked</div>
-  <p class="note">Linux only — reaper reads <code>/proc</code> directly. Run with <code>sudo</code> to tend other users' fields.</p>
+  <p class="note">Linux only — reaper reads <code>/proc</code> directly. Run with <code>sudo</code> to see and reap other users' processes.</p>
 
   <div class="links">
     <a href="https://github.com/aymenkrifa/reaper">github</a>
@@ -119,7 +119,7 @@
   </div>
 
   <footer><div class="rulepair" style="margin-bottom:10px"></div>
-  sow, listen, reap · MIT · built in Rust · inspired by gruyère 🧀</footer>
+  MIT · built in Rust · inspired by gruyère 🧀</footer>
 </div>
 </body>
 </html>
