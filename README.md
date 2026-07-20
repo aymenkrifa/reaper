@@ -1,22 +1,25 @@
-# Reaper 💀
+<div align="center">
+  <img src="assets/reaper-banner.svg" alt="reaper — a linux tui for listing and killing listening ports" width="820">
+  <p><a href="https://reaper.aymenkrifa.com"><b>reaper.aymenkrifa.com</b></a></p>
+</div>
 
-A terminal application for monitoring and killing listening processes.
+# reaper
 
-I made this small tool because I can never remember the exact `lsof` command and flags needed to see what's listening on which ports. It's a basic TUI for browsing and killing listening processes — it reads `/proc` directly, so it doesn't need `lsof` at all.
+A linux TUI for listing and killing listening ports.
 
-## Controls
+I made this small tool because I can never remember the exact `lsof` command and flags needed to see what's listening on which ports. It reads `/proc` directly, so it doesn't need `lsof` at all.
 
-- `↑/↓` - Navigate process list
-- `/` - Enter search mode
-- `s` - Cycle through sort columns
-- `1-7` - Sort by a specific column (press again to flip direction)
-- `a` - Show/hide restricted processes (other users' listeners)
-- `Enter` - Kill selected process (with confirmation)
-- `r` - Refresh process list
-- `Esc` - Clear search or return to main view
-- `q` - Quit application
+## Features
 
-## Installation
+- **Every listener in one table** — port, user, memory, uptime, protocol, pid and command
+- **Kill from the list** — select a row, press `⏎`, confirm. Nothing dies without a yes.
+- **Graceful by default** — sends `SIGTERM` first and only escalates to `SIGKILL` if the process ignores it, then reports which one actually did it
+- **Search and sort** — filter as you type, sort by any of the seven columns in either direction
+- **Other users' listeners** — hidden by default, one key to reveal (run with `sudo` to kill them)
+- **Live** — the list refreshes every second, and holds still while a confirmation is open
+- **No dependencies** — no `lsof`, no `netstat`, just `/proc`
+
+## Install
 
 Reaper is Linux-only (it reads `/proc` directly). To see and kill processes owned by other users, run it with `sudo`.
 
@@ -43,10 +46,14 @@ cd reaper
 cargo install --path . --locked
 ```
 
+## Docs
+
+Keys, the interface, and everything else live at **[reaper.aymenkrifa.com](https://reaper.aymenkrifa.com)** — one place, kept current.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file.
 
 ## Acknowledgements
 
-Inspired by [gruyère 🧀](https://github.com/savannahostrowski/gruyere) by Savannah Ostrowski built in Go. This project was built as a learning experience to explore Rust.
+Inspired by [gruyère](https://github.com/savannahostrowski/gruyere) by Savannah Ostrowski, built in Go. This project was built as a learning experience to explore Rust.
