@@ -44,9 +44,9 @@
   body{background:var(--bg);color:var(--ink);font-family:var(--mono);
        font-size:16px;line-height:1.7;
        padding:clamp(10px,2vh,28px) 20px clamp(12px,2vh,30px);
-       min-height:100vh;display:flex;align-items:center;
+       min-height:100vh;display:flex;
        -webkit-font-smoothing:antialiased}
-  .page{max-width:760px;margin:0 auto;width:100%}
+  .page{max-width:760px;margin:auto;width:100%}
 
   /* ---- masthead ---- */
   .masthead{display:flex;justify-content:space-between;align-items:center;gap:16px;
@@ -122,8 +122,8 @@
 
   /* short windows: the vh floors above stop shrinking to keep type legible,
      so step the type down a notch rather than let the footer slip past the
-     fold. only engages below a laptop-height viewport. */
-  @media (max-height:720px){
+     fold. desktop only — phones would rather scroll than squint. */
+  @media (max-height:720px) and (min-width:561px){
     .hero img{height:clamp(34px,8vh,80px)}
     .hero p{font-size:13.5px}
     .panel{margin-top:13px;padding:13px 22px 12px}
@@ -133,34 +133,44 @@
     footer{margin-top:16px}
   }
 
-  /* narrow screens: the notched title and the hints both straddle a panel
-     edge, so adjacent panels need a wider gap than the vh rhythm gives them
-     or the two labels nearly touch. */
+  /* phones: readability beats the one-frame fit. let the page run as long as
+     it needs and spend the space on type and breathing room — a short scroll
+     reads better than a squeezed screen. the notched title and the hints each
+     straddle a panel edge, so the gap between panels has to clear both. */
   @media (max-width:560px){
-    .panel{margin-top:36px;padding-left:18px;padding-right:18px}
+    body{padding:18px 18px 30px;min-height:0;display:block}
+    .page{margin:0 auto}
+    .hero{padding:30px 0 26px}
+    .hero img{height:58px}
+    .hero p{font-size:14px;margin-top:14px;line-height:1.6}
+    .panel{margin-top:42px;padding:22px 18px 20px}
     .panel > .title,.panel > .hints{left:12px}
-    .panel > .hints{font-size:10.5px;gap:10px;padding:0 8px;
+    .panel > .title{font-size:12px}
+    .panel > .hints{font-size:11.5px;gap:12px;padding:0 8px;
         max-width:calc(100% - 24px)}
+    .panel .note{font-size:14px;margin-top:16px;line-height:1.65}
+    .tui{font-size:13.5px;line-height:24px}
     /* wrap the command rather than clipping it mid-url */
-    .cmd{white-space:pre-wrap;overflow-wrap:anywhere}
-    .cmd-wrap{flex-direction:column;gap:6px}
-    .copy{align-self:flex-start}
+    .cmd{font-size:13.5px;line-height:24px;white-space:pre-wrap;overflow-wrap:anywhere}
+    .cmd-wrap{flex-direction:column;gap:10px}
+    .copy{align-self:flex-start;font-size:13px}
+    footer{margin-top:34px;font-size:12.5px;line-height:1.7}
   }
 
-  /* small phones are both narrow and short: the wrapped command costs extra
-     lines exactly where there is least room, so step everything down once
-     more. keeps the panel gap wide enough that the labels still clear. */
-  @media (max-width:560px) and (max-height:700px){
-    .hero{padding:8px 0 6px}
-    .hero img{height:42px}
-    .hero p{font-size:12.5px}
-    .panel{margin-top:26px;padding:12px 16px 11px}
-    .panel .note{font-size:12.5px;margin-top:8px}
-    .tui{font-size:12px;line-height:16px}
-    .cmd{font-size:12px;line-height:16px}
-    .panel > .hints{font-size:10px;gap:8px}
-    footer{font-size:11.5px;margin-top:12px}
+  /* the hint row is one unbreakable line, so it sets its own floor: measured
+     at 322px wide, against (viewport - 60px) of room. step it down once so it
+     still clears at 375 and 360. */
+  @media (max-width:389px){
+    .panel > .hints{font-size:10.5px;gap:8px}
   }
+  /* narrower than that, no legible size fits on the border — drop the hints
+     into the panel as a normal wrapping line instead of clipping them. */
+  @media (max-width:345px){
+    .panel > .hints{position:static;transform:none;background:none;padding:0;
+        margin-top:15px;max-width:none;flex-wrap:wrap;gap:10px;
+        font-size:11.5px;white-space:normal}
+  }
+
 </style>
 <script>
   // apply a pinned sky before first paint so there's no flash.
