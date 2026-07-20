@@ -26,6 +26,7 @@
     --bg:#0C0F0D; --panel:#10140F; --ink:#EAE4D6;
     --green:#3FDD78; --red:#FF5C57; --amber:#F2B94B; --ash:#7A857C;
     --line:rgba(122,133,124,.42);
+    --glow:rgba(63,221,120,.16);
     --mono:'JetBrains Mono',ui-monospace,monospace;
     --sans:'IBM Plex Sans',system-ui,sans-serif;
   }
@@ -34,12 +35,14 @@
     --bg:#F2EFE6; --panel:#FFFFFF; --ink:#141815;
     --green:#149E52; --red:#DE3B36; --amber:#A9750E; --ash:#5E6860;
     --line:rgba(94,104,96,.38);
+    --glow:rgba(20,158,82,.085);
   }
   @media (prefers-color-scheme: light){
     :root:not([data-theme=dark]){
       --bg:#F2EFE6; --panel:#FFFFFF; --ink:#141815;
       --green:#149E52; --red:#DE3B36; --amber:#A9750E; --ash:#5E6860;
       --line:rgba(94,104,96,.38);
+      --glow:rgba(20,158,82,.085);
     }
   }
 
@@ -48,6 +51,9 @@
      relative, so it breathes on a tall screen and tightens on a short one
      rather than pushing the footer past the fold. */
   body{background:var(--bg);color:var(--ink);font-family:var(--mono);
+       background-image:radial-gradient(ellipse 1000px 520px at 50% -70px,
+           var(--glow) 0%, transparent 72%);
+       background-repeat:no-repeat;
        font-size:16px;line-height:1.7;
        padding:clamp(10px,2vh,28px) 20px clamp(10px,1.7vh,30px);
        min-height:100vh;display:flex;
