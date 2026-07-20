@@ -1,8 +1,8 @@
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal,
-    style::{Style, Stylize},
+    style::Style,
     text::{Line, Span},
     widgets::TableState,
 };
@@ -31,9 +31,9 @@ pub(crate) enum SortBy {
 #[derive(Debug)]
 pub struct App {
     pub(crate) running: bool,
+    pub(crate) scanner: lsof::Scanner,
     pub(crate) processes: Vec<lsof::LsofEntry>,
     pub(crate) filtered_processes: Vec<lsof::LsofEntry>,
-    pub(crate) error_message: Option<String>,
     pub(crate) status_message: Option<Line<'static>>,
     pub(crate) loading_message: Option<String>,
     pub(crate) mode: AppMode,
@@ -44,6 +44,11 @@ pub struct App {
     pub(crate) sort_ascending: bool,
     pub(crate) loading_animation_frame: usize,
     pub(crate) show_restricted: bool,
+    /// Snapshot of the process the ConfirmKill prompt is about. The live
+    /// table keeps refreshing underneath the prompt, so the selection
+    /// index alone could silently come to point at a different process
+    /// between "Enter" and "y".
+    pub(crate) pending_kill: Option<LsofEntry>,
 }
 
 impl Default for App {
@@ -53,9 +58,9 @@ impl Default for App {
 
         Self {
             running: false,
+            scanner: lsof::Scanner::default(),
             processes: Vec::new(),
             filtered_processes: Vec::new(),
-            error_message: None,
             status_message: None,
             loading_message: None,
             mode: AppMode::ProcessList,
@@ -66,17 +71,19 @@ impl Default for App {
             sort_ascending: false,
             loading_animation_frame: 0,
             show_restricted: false,
+            pending_kill: None,
         }
     }
 }
 
-/// Build a status line with port/command/pid colored to match their
-/// table-column hues, so the eye picks each piece out instantly.
+/// Build a success status line with port/command/pid colored to match
+/// their table-column hues, so the eye picks each piece out instantly.
 /// `verb_color` carries the outcome semantics (green=killed,
-/// orange=force-killed, danger handling lives in error_message).
+/// orange=force-killed).
 fn kill_status_line(verb: &str, verb_color: ratatui::style::Color, p: &LsofEntry) -> Line<'static> {
     let dim = Style::default().fg(Colors::TEXT_TERTIARY);
     Line::from(vec![
+        Span::styled("✓ ", Style::default().fg(Colors::SUCCESS).bold()),
         Span::styled(format!("{} ", verb), Style::default().fg(verb_color).bold()),
         Span::styled(
             format!(":{}", p.port),
@@ -89,6 +96,16 @@ fn kill_status_line(verb: &str, verb_color: ratatui::style::Color, p: &LsofEntry
     ])
 }
 
+/// A kill that didn't work: red ✗ plus the explanation. Shown in the same
+/// status band as successes (it survives the auto-refresh and clears on
+/// the next keypress).
+fn kill_failure_line(message: String) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("✗ ", Style::default().fg(Colors::DANGER).bold()),
+        Span::styled(message, Style::default().fg(Colors::DANGER)),
+    ])
+}
+
 impl App {
     pub fn new() -> Self {
         Self {
@@ -98,7 +115,7 @@ impl App {
     }
 
     pub fn refresh_processes(&mut self) {
-        self.processes = lsof::get_listening_processes();
+        self.processes = self.scanner.scan();
         self.apply_filter_and_sort();
 
         if !self.search_query.is_empty()
@@ -109,7 +126,6 @@ impl App {
             self.apply_filter_and_sort();
         }
 
-        self.error_message = None;
         self.loading_message = None;
         if self.selected_index >= self.filtered_processes.len() {
             self.selected_index = 0;
@@ -123,7 +139,9 @@ impl App {
     }
 
     pub(crate) fn apply_filter_and_sort(&mut self) {
-        let query = self.search_query.to_lowercase();
+        // ASCII case-folding, matching highlight_matching_text in ui.rs,
+        // so every row this filter keeps also gets its match underlined.
+        let query = self.search_query.to_ascii_lowercase();
         let has_query = !query.is_empty();
 
         self.filtered_processes = self
@@ -136,14 +154,14 @@ impl App {
                 if !has_query {
                     return true;
                 }
-                p.command.to_lowercase().contains(&query)
-                    || p.user.to_lowercase().contains(&query)
-                    || p.local_addr.to_lowercase().contains(&query)
+                p.command.to_ascii_lowercase().contains(&query)
+                    || p.user.to_ascii_lowercase().contains(&query)
+                    || p.local_addr.to_ascii_lowercase().contains(&query)
                     || p.port.to_string().contains(&query)
                     || p.pid.contains(&query)
                     || p.cwd
                         .as_deref()
-                        .is_some_and(|c| c.to_lowercase().contains(&query))
+                        .is_some_and(|c| c.to_ascii_lowercase().contains(&query))
             })
             .cloned()
             .collect();
@@ -191,32 +209,50 @@ impl App {
         let animation_interval = Duration::from_millis(100);
         let mut last_refresh = Instant::now();
         let mut last_animation = Instant::now();
+        let mut needs_redraw = true;
 
         while self.running {
-            let timeout = refresh_interval
-                .checked_sub(last_refresh.elapsed())
-                .unwrap_or(Duration::from_secs(0))
-                .min(
-                    animation_interval
-                        .checked_sub(last_animation.elapsed())
-                        .unwrap_or(Duration::from_secs(0)),
-                );
-
-            if crossterm::event::poll(timeout)? {
-                self.handle_crossterm_events()?;
+            if needs_redraw {
+                terminal.draw(|frame| self.render(frame))?;
+                needs_redraw = false;
             }
 
-            if last_refresh.elapsed() >= refresh_interval {
+            // The 100ms spinner tick only matters while a loading message
+            // is up; when idle, sleep the full stretch to the next refresh
+            // instead of waking (and redrawing) ten times a second.
+            let until_refresh = refresh_interval.saturating_sub(last_refresh.elapsed());
+            let timeout = if self.mode == AppMode::ConfirmKill {
+                // Refreshes are frozen, so nothing periodic runs — a zero
+                // `until_refresh` here would spin the poll loop. Just wait
+                // for a key in comfortable stretches.
+                refresh_interval
+            } else if self.loading_message.is_some() {
+                until_refresh.min(animation_interval.saturating_sub(last_animation.elapsed()))
+            } else {
+                until_refresh
+            };
+
+            if event::poll(timeout)? {
+                self.handle_crossterm_events()?;
+                needs_redraw = true;
+            }
+
+            // Freeze the list while the ConfirmKill prompt is up: the user
+            // is deciding based on what's on screen, so nothing may reorder
+            // under them. Paired with the ConfirmKill timeout branch above;
+            // the mode is deliberately re-read here because the key event
+            // just handled may have entered or left the prompt.
+            if self.mode != AppMode::ConfirmKill && last_refresh.elapsed() >= refresh_interval {
                 self.refresh_processes();
                 last_refresh = Instant::now();
+                needs_redraw = true;
             }
 
-            if last_animation.elapsed() >= animation_interval {
+            if self.loading_message.is_some() && last_animation.elapsed() >= animation_interval {
                 self.loading_animation_frame = (self.loading_animation_frame + 1) % 10;
                 last_animation = Instant::now();
+                needs_redraw = true;
             }
-
-            terminal.draw(|frame| self.render(frame))?;
         }
         Ok(())
     }
@@ -232,6 +268,15 @@ impl App {
     }
 
     fn on_key_event(&mut self, key: KeyEvent) {
+        // Ctrl+C quits from every mode — never trapped by a prompt,
+        // never typed into the search box.
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C'))
+        {
+            self.quit();
+            return;
+        }
+
         if self.mode == AppMode::ProcessList {
             self.status_message = None;
         }
@@ -253,8 +298,7 @@ impl App {
                         self.quit();
                     }
                 }
-                (_, KeyCode::Char('q'))
-                | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
+                (_, KeyCode::Char('q')) => self.quit(),
                 (_, KeyCode::Char('r') | KeyCode::Char('R')) => {
                     self.refresh_processes();
                 }
@@ -333,7 +377,11 @@ impl App {
                             Some(0)
                         });
                 }
-                (_, KeyCode::Char(c)) => {
+                // SHIFT is how uppercase arrives; any other chord (Ctrl/Alt
+                // combos) is a command, not text — don't type it.
+                (m, KeyCode::Char(c))
+                    if !m.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
                     self.search_query.push(c);
                     self.apply_filter_and_sort();
                     self.selected_index = 0;
@@ -389,6 +437,7 @@ impl App {
             ]));
             return;
         }
+        self.pending_kill = Some(selected.clone());
         self.mode = AppMode::ConfirmKill;
     }
 
@@ -467,45 +516,41 @@ impl App {
     }
 
     fn confirm_kill(&mut self) {
-        let Some(process) = self.filtered_processes.get(self.selected_index) else {
+        self.mode = AppMode::ProcessList;
+        // Kill the snapshotted process the user actually confirmed — never
+        // whatever the current selection index happens to point at.
+        let Some(process) = self.pending_kill.take() else {
             return;
         };
-        let process = process.clone();
-        let pid = process.pid.clone();
-        let command = process.command.clone();
-        self.mode = AppMode::ProcessList;
 
-        match lsof::kill_process_verified(&pid) {
-            Ok(KillOutcome::Terminated) => {
-                self.status_message = Some(kill_status_line("Killed", Colors::SUCCESS, &process));
-                self.error_message = None;
-            }
-            Ok(KillOutcome::ForceKilled) => {
-                let mut line = kill_status_line("Force-killed", Colors::WARNING, &process);
-                line.spans.push(Span::styled(
-                    "  (ignored SIGTERM)",
-                    Style::default().fg(Colors::TEXT_TERTIARY),
-                ));
-                self.status_message = Some(line);
-                self.error_message = None;
-            }
-            Ok(KillOutcome::StillAlive) => {
-                self.error_message = Some(format!(
+        self.status_message =
+            match lsof::kill_process_verified(&process.pid, process.starttime_ticks) {
+                Ok(KillOutcome::Terminated) => {
+                    Some(kill_status_line("Killed", Colors::SUCCESS, &process))
+                }
+                Ok(KillOutcome::ForceKilled) => {
+                    let mut line = kill_status_line("Force-killed", Colors::WARNING, &process);
+                    line.spans.push(Span::styled(
+                        "  (ignored SIGTERM)",
+                        Style::default().fg(Colors::TEXT_TERTIARY),
+                    ));
+                    Some(line)
+                }
+                Ok(KillOutcome::StillAlive) => Some(kill_failure_line(format!(
                     "{} ({}) is still alive after SIGKILL — likely a kernel-stuck process",
-                    command, pid
-                ));
-                self.status_message = None;
-            }
-            Err(e) => {
-                self.error_message = Some(format!("Failed to signal {} ({}): {}", command, pid, e));
-                self.status_message = None;
-            }
-        }
+                    process.command, process.pid
+                ))),
+                Err(e) => Some(kill_failure_line(format!(
+                    "Failed to signal {} ({}): {}",
+                    process.command, process.pid, e
+                ))),
+            };
 
         self.refresh_processes();
     }
 
     fn cancel_kill(&mut self) {
+        self.pending_kill = None;
         self.mode = AppMode::ProcessList;
     }
 

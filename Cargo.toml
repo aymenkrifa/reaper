@@ -8,6 +8,13 @@ license = "MIT"
 edition = "2024"
 
 [dependencies]
-crossterm = "0.28.1"
+# crossterm comes via ratatui's re-export (`ratatui::crossterm`) so the
+# two crates can never drift onto different crossterm versions.
 ratatui = "0.30.2"
 color-eyre = "0.6.3"
+libc = "0.2"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1
