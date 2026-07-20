@@ -229,7 +229,7 @@
   <span class="port">:8000</span>    <span class="dim">aymen     19.8MB    45s       TCP</span>      9021     python3 -m http.server</span>
 <span class="band"><span class="dim">▌ node
 ↳ ~/projects/api</span>
- </span><span class="help">↑/↓: Navigate • Enter: Kill • /: Search • s: Sort • q/Esc: Quit</span></div>
+ </span><span class="help">↑/↓: Navigate • ⏎: Kill • /: Search • s/1-7: Sort • r: Refresh • q/Esc: Quit</span></div>
     <p class="note">select a port, press <code>⏎</code>, confirm — that's the whole
     loop. search with <code>/</code>, sort with <code>s</code>. nothing dies
     without a yes.</p>
@@ -296,7 +296,7 @@
     ];
     var TARGET = 2; // the row the demo kills
     // reaper's own help line, trimmed to the keys this demo uses
-    var HELP = '↑/↓: Navigate • Enter: Kill • /: Search • s: Sort • q/Esc: Quit';
+    var HELP = '↑/↓: Navigate • ⏎: Kill • /: Search • s/1-7: Sort • r: Refresh • q/Esc: Quit';
 
     function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
     function pad(s,n){ s = String(s); return s + ' '.repeat(Math.max(0, n - s.length)); }
@@ -442,28 +442,56 @@
         btn.textContent = '[copy]';
       }, 1600);
     }
+    // execCommand is deprecated but it is the only path that copies outside a
+    // secure context (file://, plain http), so it backs up the clipboard api
+    // rather than making the user press the keys themselves.
+    function legacyCopy(text){
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0';
+      document.body.appendChild(ta);
+      var sel = document.getSelection();
+      var prev = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+      var ok = false;
+      try {
+        ta.select();
+        ta.setSelectionRange(0, text.length); // ios needs the explicit range
+        ok = document.execCommand('copy');
+      } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      // don't clobber whatever the reader had selected
+      if (prev && sel) { sel.removeAllRanges(); sel.addRange(prev); }
+      return ok;
+    }
+
+    // last resort: put the command on screen selected, so ctrl+c works
+    function offerManual(){
+      try {
+        var r = document.createRange();
+        r.selectNodeContents(cmd);
+        var s2 = getSelection();
+        s2.removeAllRanges();
+        s2.addRange(r);
+        flash('fail', '[press ⌘/ctrl+c]');
+      } catch (e) {
+        flash('fail', '[copy failed]');
+      }
+    }
+
+    function fallback(text){
+      if (legacyCopy(text)) flash('done', '[copied]');
+      else offerManual();
+    }
+
     btn.addEventListener('click', function(){
       var text = cmd.textContent.trim();
-      // clipboard api needs a secure context; fall back to a manual selection
-      // so the command is still gettable over plain http or in older browsers
       if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(text)
           .then(function(){ flash('done', '[copied]'); })
-          .catch(function(){ select(); });
+          .catch(function(){ fallback(text); });
       } else {
-        select();
-      }
-      function select(){
-        try {
-          var r = document.createRange();
-          r.selectNodeContents(cmd);
-          var s = getSelection();
-          s.removeAllRanges();
-          s.addRange(r);
-          flash('fail', '[press ⌘/ctrl+c]');
-        } catch (e) {
-          flash('fail', '[copy failed]');
-        }
+        fallback(text);
       }
     });
   })();
