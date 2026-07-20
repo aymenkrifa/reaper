@@ -1,9 +1,9 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Style, Stylize},
+    style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Cell, Paragraph, Row, Table},
+    widgets::{Cell, Paragraph, Row, Table},
 };
 
 use crate::app::{App, AppMode, SortBy};
@@ -47,8 +47,11 @@ fn highlight_matching_text(text: &str, query: &str, style: Style) -> Vec<Span<'s
     }
 
     let mut spans = Vec::new();
-    let lower_text = text.to_lowercase();
-    let lower_query = query.to_lowercase();
+    // ASCII-only case folding: unlike `to_lowercase()`, it never changes
+    // the byte length (e.g. 'İ' → "i̇"), so match offsets found in the
+    // folded copy are guaranteed to be valid char boundaries in `text`.
+    let lower_text = text.to_ascii_lowercase();
+    let lower_query = query.to_ascii_lowercase();
 
     let mut last_end = 0;
     for (start, _) in lower_text.match_indices(&lower_query) {
@@ -129,15 +132,6 @@ impl App {
             .split(frame.area());
 
         self.render_header(frame, chunks[0]);
-
-        if let Some(error) = &self.error_message {
-            let text = format!("Error: {}\n\nPress 'r' to retry, 'q' to quit.", error);
-            frame.render_widget(
-                Paragraph::new(text).block(Block::bordered()).centered(),
-                chunks[1],
-            );
-            return;
-        }
 
         if let Some(text) = &self.loading_message
             && self.processes.is_empty()
@@ -441,13 +435,8 @@ impl App {
             .split(area);
 
         if let Some(status) = &self.status_message {
-            // Prepend a green check, then render the pre-styled spans.
-            let mut spans: Vec<Span<'static>> = vec![Span::styled(
-                "✓ ",
-                Style::default().fg(Colors::SUCCESS).bold(),
-            )];
-            spans.extend(status.spans.iter().cloned());
-            frame.render_widget(Paragraph::new(Line::from(spans)), help_layout[0]);
+            // The line carries its own ✓/✗ prefix and styling.
+            frame.render_widget(Paragraph::new(status.clone()), help_layout[0]);
         }
 
         let help_text = match self.mode {
@@ -478,7 +467,9 @@ impl App {
     /// navigation: just the question (with port/command/pid colored to
     /// match their column hues) and a clear two-key choice underneath.
     fn render_kill_prompt(&self, frame: &mut Frame, area: Rect) {
-        let Some(p) = self.filtered_processes.get(self.selected_index) else {
+        // Render from the snapshot taken when the prompt opened — the same
+        // entry confirm_kill() will act on — never the live selection.
+        let Some(p) = self.pending_kill.as_ref() else {
             return;
         };
         let dim = Style::default().fg(Colors::TEXT_TERTIARY);
@@ -516,5 +507,48 @@ impl App {
         frame.render_widget(Paragraph::new(prompt), layout[0]);
         frame.render_widget(Paragraph::new(""), layout[1]);
         frame.render_widget(Paragraph::new(choices), layout[2]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn joined(spans: &[Span<'static>]) -> String {
+        spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn highlight_survives_length_changing_lowercase() {
+        // 'İ' (2 bytes) lowercases to "i̇" (3 bytes); with `to_lowercase()`
+        // the match offsets shifted past the end of the original string
+        // and slicing panicked.
+        let spans = highlight_matching_text("İstanbul-app", "app", Style::default());
+        assert_eq!(joined(&spans), "İstanbul-app");
+    }
+
+    #[test]
+    fn highlight_marks_ascii_matches_case_insensitively() {
+        let style = Style::default();
+        let spans = highlight_matching_text("Nginx-nginx", "NGINX", style);
+        assert_eq!(joined(&spans), "Nginx-nginx");
+        let underlined: Vec<&str> = spans
+            .iter()
+            .filter(|s| {
+                s.style
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::UNDERLINED)
+            })
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert_eq!(underlined, vec!["Nginx", "nginx"]);
+    }
+
+    #[test]
+    fn truncate_marks_clipped_cells() {
+        assert_eq!(truncate("short", 10), "short");
+        assert_eq!(truncate("exactly-10", 10), "exactly-10");
+        assert_eq!(truncate("very-long-command", 10), "very-long…");
+        assert_eq!(truncate("anything", 0), "");
     }
 }

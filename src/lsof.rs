@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
@@ -16,6 +15,11 @@ pub struct LsofEntry {
     pub protocol: &'static str,
     pub memory_mb: f64,
     pub start_time: Option<SystemTime>,
+    /// Raw starttime from /proc/<pid>/stat (clock ticks since boot).
+    /// Identifies a specific incarnation of a PID: if the kernel recycles
+    /// the number for a new process, its ticks differ. Used to refuse
+    /// killing a recycled PID.
+    pub starttime_ticks: Option<u64>,
     /// Working directory the process was started in, when readable.
     /// `None` for restricted PIDs (other users) or kernel threads.
     pub cwd: Option<String>,
@@ -42,9 +46,11 @@ impl LsofEntry {
         }
     }
 
-    /// True when we have a real numeric PID we can signal.
+    /// True when we have a real numeric PID we can signal — the same
+    /// definition send_signal enforces, so a row the UI offers to kill
+    /// can't be rejected later as an invalid pid.
     pub fn is_killable(&self) -> bool {
-        !self.pid.is_empty() && self.pid.bytes().all(|b| b.is_ascii_digit())
+        self.pid.parse::<i32>().is_ok_and(|p| p > 0)
     }
 }
 
@@ -233,28 +239,45 @@ fn read_proc_status(pid: &str) -> (Option<u32>, f64) {
         .unwrap_or((None, 0.0))
 }
 
-fn parse_proc_stat(content: &str, boot_secs: u64) -> (String, Option<SystemTime>) {
-    // Field 2 (comm) is parenthesized and may contain spaces or ')'.
-    let lparen = content.find('(');
-    let rparen = content.rfind(')');
-    let (command, after) = match (lparen, rparen) {
-        (Some(l), Some(r)) if r > l => (content[l + 1..r].to_string(), &content[r + 1..]),
-        _ => return (String::new(), None),
-    };
-    let fields: Vec<&str> = after.split_whitespace().collect();
-    // After comm, field 22 (starttime) sits at index 19.
-    let start_time = fields.get(19).and_then(|s| s.parse::<u64>().ok()).map(|t| {
-        let start_secs_after_boot = t / USER_HZ;
-        let secs_ago = boot_secs.saturating_sub(start_secs_after_boot);
-        SystemTime::now() - Duration::from_secs(secs_ago)
-    });
-    (command, start_time)
+#[derive(Debug)]
+struct ProcStat {
+    comm: String,
+    /// Single-char process state (field 3): 'R', 'S', 'Z', …
+    state: Option<char>,
+    /// Field 22: process start time in clock ticks since boot.
+    starttime_ticks: Option<u64>,
 }
 
-fn read_proc_stat(pid: &str, boot_secs: u64) -> (String, Option<SystemTime>) {
+fn parse_proc_stat(content: &str) -> Option<ProcStat> {
+    // Field 2 (comm) is parenthesized and may contain spaces or ')' —
+    // only the LAST ')' delimits it.
+    let lparen = content.find('(')?;
+    let rparen = content.rfind(')')?;
+    if rparen <= lparen {
+        return None;
+    }
+    let comm = content[lparen + 1..rparen].to_string();
+    let fields: Vec<&str> = content[rparen + 1..].split_whitespace().collect();
+    let state = fields.first().and_then(|s| s.chars().next());
+    // After comm, field 22 (starttime) sits at index 19.
+    let starttime_ticks = fields.get(19).and_then(|s| s.parse::<u64>().ok());
+    Some(ProcStat {
+        comm,
+        state,
+        starttime_ticks,
+    })
+}
+
+fn read_proc_stat(pid: &str) -> Option<ProcStat> {
     fs::read_to_string(format!("/proc/{}/stat", pid))
-        .map(|c| parse_proc_stat(&c, boot_secs))
-        .unwrap_or((String::new(), None))
+        .ok()
+        .and_then(|c| parse_proc_stat(&c))
+}
+
+fn start_time_from_ticks(ticks: u64, uptime_secs: u64) -> SystemTime {
+    let start_secs_after_boot = ticks / USER_HZ;
+    let secs_ago = uptime_secs.saturating_sub(start_secs_after_boot);
+    SystemTime::now() - Duration::from_secs(secs_ago)
 }
 
 /// Interpreter-style executables whose first argument is a script path
@@ -338,7 +361,14 @@ fn boot_uptime_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Everything we display about one PID, read fresh each scan. Processes
+/// rewrite their argv (setproctitle), drop privileges (setuid), and
+/// chdir at runtime, so none of this can be cached across scans without
+/// going stale — and at a handful of small /proc reads per listener per
+/// second, it doesn't need to be.
+#[derive(Debug)]
 struct PidMeta {
+    starttime_ticks: Option<u64>,
     command: String,
     user: String,
     memory_mb: f64,
@@ -346,82 +376,144 @@ struct PidMeta {
     cwd: Option<String>,
 }
 
-pub fn get_listening_processes() -> Vec<LsofEntry> {
-    let tcp = fs::read_to_string("/proc/net/tcp").unwrap_or_default();
-    let tcp6 = fs::read_to_string("/proc/net/tcp6").unwrap_or_default();
-    let mut listeners = parse_proc_net_tcp(&tcp, false);
-    listeners.extend(parse_proc_net_tcp(&tcp6, true));
+/// Carries the socket-inode → PID mapping across scans.
+///
+/// Resolving an inode to its owning PID means walking every fd of every
+/// process under /proc — by far the most expensive part of a scan. The
+/// mapping is cached so that walk only runs when an unknown inode
+/// appears. Each entry records the starttime ticks of the PID it was
+/// resolved against; a scan that observes different ticks (the PID died,
+/// possibly recycled for an unrelated process) evicts the entry and
+/// re-resolves, so a recycled PID can never inherit the old socket's
+/// attribution.
+#[derive(Debug, Default)]
+pub struct Scanner {
+    inode_to_pid: HashMap<u64, (String, Option<u64>)>,
+}
 
-    let needed: HashSet<u64> = listeners.iter().map(|l| l.inode).collect();
-    let inode_to_pid = build_inode_to_pid(&needed);
+impl Scanner {
+    pub fn scan(&mut self) -> Vec<LsofEntry> {
+        let tcp = fs::read_to_string("/proc/net/tcp").unwrap_or_default();
+        let tcp6 = fs::read_to_string("/proc/net/tcp6").unwrap_or_default();
+        let mut listeners = parse_proc_net_tcp(&tcp, false);
+        listeners.extend(parse_proc_net_tcp(&tcp6, true));
 
-    let boot = boot_uptime_secs();
-    let passwd = passwd_map();
-    let mut pid_cache: HashMap<String, PidMeta> = HashMap::new();
+        let needed: HashSet<u64> = listeners.iter().map(|l| l.inode).collect();
+        self.inode_to_pid.retain(|inode, _| needed.contains(inode));
 
-    let mut entries = Vec::new();
-    for l in listeners {
-        let pid = inode_to_pid.get(&l.inode);
-
-        let (command, user, memory_mb, start_time, cwd) = match pid {
-            Some(pid) => {
-                let meta = pid_cache.entry(pid.clone()).or_insert_with(|| {
-                    let (uid_opt, memory_mb) = read_proc_status(pid);
-                    let user = uid_opt
-                        .and_then(|uid| passwd.get(&uid).cloned())
-                        .or_else(|| uid_opt.map(|u| u.to_string()))
-                        .unwrap_or_else(|| "?".to_string());
-                    let (comm, start_time) = read_proc_stat(pid, boot);
-                    // Prefer the full argv from /proc/<pid>/cmdline so we can
-                    // distinguish two `python3` / `uvicorn` listeners by the
-                    // script or app they're running. Falls back to the
-                    // 15-char comm name when cmdline is empty (kernel threads,
-                    // zombies, races).
-                    let command = read_proc_cmdline(pid).unwrap_or(comm);
-                    let cwd = read_proc_cwd(pid);
-                    PidMeta {
-                        command,
-                        user,
-                        memory_mb,
-                        start_time,
-                        cwd,
-                    }
-                });
-                (
-                    meta.command.clone(),
-                    meta.user.clone(),
-                    meta.memory_mb,
-                    meta.start_time,
-                    meta.cwd.clone(),
-                )
-            }
-            None => {
-                // /proc/<pid>/fd was unreadable for every PID we tried (typical
-                // when reaper runs without sudo). The /proc/net/tcp row itself
-                // still tells us who owns the socket — show that, even though
-                // we can't resolve the actual command name.
-                let user = passwd
-                    .get(&l.uid)
-                    .cloned()
-                    .unwrap_or_else(|| l.uid.to_string());
-                ("(restricted)".to_string(), user, 0.0, None, None)
-            }
-        };
-
-        entries.push(LsofEntry {
-            command,
-            pid: pid.cloned().unwrap_or_else(|| "?".to_string()),
-            user,
-            local_addr: l.local_addr,
-            port: l.port,
-            protocol: l.proto,
-            memory_mb,
-            start_time,
-            cwd,
+        // One stat read per distinct PID per scan — the identity check
+        // here, comm/start-time for the entries below.
+        let mut stats: HashMap<String, Option<ProcStat>> = HashMap::new();
+        for (pid, _) in self.inode_to_pid.values() {
+            stats
+                .entry(pid.clone())
+                .or_insert_with(|| read_proc_stat(pid));
+        }
+        // Keep a mapping only while its PID is provably the same
+        // incarnation it was resolved against.
+        self.inode_to_pid.retain(|_, (pid, ticks)| {
+            let live = stats
+                .get(pid)
+                .and_then(|s| s.as_ref())
+                .and_then(|s| s.starttime_ticks);
+            matches!((live, *ticks), (Some(l), Some(t)) if l == t)
         });
-    }
 
-    entries
+        let unknown: HashSet<u64> = needed
+            .iter()
+            .copied()
+            .filter(|inode| !self.inode_to_pid.contains_key(inode))
+            .collect();
+        if !unknown.is_empty() {
+            for (inode, pid) in build_inode_to_pid(&unknown) {
+                let stat = stats
+                    .entry(pid.clone())
+                    .or_insert_with(|| read_proc_stat(&pid));
+                let ticks = stat.as_ref().and_then(|s| s.starttime_ticks);
+                self.inode_to_pid.insert(inode, (pid, ticks));
+            }
+        }
+
+        let uptime = boot_uptime_secs();
+        let passwd = passwd_map();
+        // Scan-local, so a PID backing several listeners (v4+v6) is only
+        // read once per scan.
+        let mut pid_cache: HashMap<String, PidMeta> = HashMap::new();
+
+        let mut entries = Vec::new();
+        for l in listeners {
+            let pid = self.inode_to_pid.get(&l.inode).map(|(p, _)| p.clone());
+
+            let entry = match pid {
+                Some(pid) => {
+                    let meta = pid_cache.entry(pid.clone()).or_insert_with(|| {
+                        let stat = stats.remove(&pid).flatten();
+                        let ticks = stat.as_ref().and_then(|s| s.starttime_ticks);
+                        let comm = stat.map(|s| s.comm).unwrap_or_default();
+                        let (uid_opt, memory_mb) = read_proc_status(&pid);
+                        let user = uid_opt
+                            .map(|uid| resolve_user(uid, passwd))
+                            .unwrap_or_else(|| "?".to_string());
+                        // Prefer the full argv from /proc/<pid>/cmdline so we
+                        // can distinguish two `python3` / `uvicorn` listeners
+                        // by the script or app they're running. Falls back to
+                        // the 15-char comm name when cmdline is empty (kernel
+                        // threads, zombies, races).
+                        let command = read_proc_cmdline(&pid).unwrap_or(comm);
+                        let cwd = read_proc_cwd(&pid);
+                        let start_time = ticks.map(|t| start_time_from_ticks(t, uptime));
+                        PidMeta {
+                            starttime_ticks: ticks,
+                            command,
+                            user,
+                            memory_mb,
+                            start_time,
+                            cwd,
+                        }
+                    });
+                    LsofEntry {
+                        command: meta.command.clone(),
+                        pid: pid.clone(),
+                        user: meta.user.clone(),
+                        local_addr: l.local_addr,
+                        port: l.port,
+                        protocol: l.proto,
+                        memory_mb: meta.memory_mb,
+                        start_time: meta.start_time,
+                        starttime_ticks: meta.starttime_ticks,
+                        cwd: meta.cwd.clone(),
+                    }
+                }
+                None => {
+                    // /proc/<pid>/fd was unreadable for every PID we tried
+                    // (typical when reaper runs without sudo). The
+                    // /proc/net/tcp row itself still tells us who owns the
+                    // socket — show that, even though we can't resolve the
+                    // actual command name.
+                    LsofEntry {
+                        command: "(restricted)".to_string(),
+                        pid: "?".to_string(),
+                        user: resolve_user(l.uid, passwd),
+                        local_addr: l.local_addr,
+                        port: l.port,
+                        protocol: l.proto,
+                        memory_mb: 0.0,
+                        start_time: None,
+                        starttime_ticks: None,
+                        cwd: None,
+                    }
+                }
+            };
+            entries.push(entry);
+        }
+
+        entries
+    }
+}
+
+/// uid → username via /etc/passwd, falling back to the numeric uid.
+fn resolve_user(uid: u32, passwd: &HashMap<u32, String>) -> String {
+    passwd.get(&uid).cloned().unwrap_or_else(|| uid.to_string())
 }
 
 /// Outcome of attempting to terminate a process.
@@ -439,23 +531,56 @@ pub enum KillOutcome {
 /// SIGKILL if needed, then wait another ~200ms. Returns what actually
 /// happened — no lying about "successfully killed" when we only sent a
 /// signal.
-pub fn kill_process_verified(pid: &str) -> io::Result<KillOutcome> {
-    send_signal(pid, "-TERM")?;
+///
+/// `expected_ticks` is the starttime of the process the user confirmed
+/// killing. The confirmation prompt has no timeout, so by the time we get
+/// here the kernel may have recycled the PID for an unrelated process —
+/// refuse to signal anything we can't positively identify. A snapshot
+/// without ticks (a /proc read race at scan time) also refuses: failing
+/// closed beats signaling an unverified PID.
+pub fn kill_process_verified(pid: &str, expected_ticks: Option<u64>) -> io::Result<KillOutcome> {
+    let Some(expected) = expected_ticks else {
+        return Err(io::Error::other(
+            "could not verify process identity — refresh (r) and retry",
+        ));
+    };
+    match read_proc_stat(pid).and_then(|s| s.starttime_ticks) {
+        // Already gone — the goal state, nothing to signal.
+        None => return Ok(KillOutcome::Terminated),
+        Some(t) if t != expected => {
+            return Err(io::Error::other(
+                "PID was recycled by a different process; not killing",
+            ));
+        }
+        Some(_) => {}
+    }
+    send_signal(pid, libc::SIGTERM)?;
     if wait_for_exit(pid, Duration::from_millis(200)) {
         return Ok(KillOutcome::Terminated);
     }
-    send_signal(pid, "-KILL")?;
+    send_signal(pid, libc::SIGKILL)?;
     if wait_for_exit(pid, Duration::from_millis(200)) {
         return Ok(KillOutcome::ForceKilled);
     }
     Ok(KillOutcome::StillAlive)
 }
 
+/// A process counts as exited once its /proc entry is gone or it has
+/// turned into a zombie ('Z') or dead ('X') task — a zombie keeps its
+/// /proc entry until the parent reaps it, but its sockets are already
+/// released.
+fn has_exited(pid: &str) -> bool {
+    match read_proc_stat(pid) {
+        None => true,
+        Some(stat) => matches!(stat.state, Some('Z') | Some('X') | None),
+    }
+}
+
 fn wait_for_exit(pid: &str, budget: Duration) -> bool {
     let deadline = std::time::Instant::now() + budget;
     let step = Duration::from_millis(20);
     loop {
-        if fs::metadata(format!("/proc/{}", pid)).is_err() {
+        if has_exited(pid) {
             return true;
         }
         if std::time::Instant::now() >= deadline {
@@ -465,22 +590,22 @@ fn wait_for_exit(pid: &str, budget: Duration) -> bool {
     }
 }
 
-fn send_signal(pid: &str, sig: &str) -> io::Result<()> {
-    if !pid.bytes().all(|b| b.is_ascii_digit()) || pid.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("invalid pid: {}", pid),
-        ));
+fn send_signal(pid: &str, sig: libc::c_int) -> io::Result<()> {
+    let invalid = || io::Error::new(io::ErrorKind::InvalidInput, format!("invalid pid: {}", pid));
+    let pid_num: i32 = pid.parse().map_err(|_| invalid())?;
+    // pid 0 / negative values signal entire process groups — never that.
+    if pid_num <= 0 {
+        return Err(invalid());
     }
-    let output = Command::new("kill").arg(sig).arg(pid).output()?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        return Err(io::Error::other(format!(
-            "kill {} {} failed: {}",
-            sig, pid, stderr
-        )));
+    if unsafe { libc::kill(pid_num, sig) } == 0 {
+        return Ok(());
     }
-    Ok(())
+    let err = io::Error::last_os_error();
+    if err.raw_os_error() == Some(libc::ESRCH) {
+        // Process disappeared on its own — the goal state.
+        return Ok(());
+    }
+    Err(err)
 }
 
 #[cfg(test)]
@@ -568,36 +693,54 @@ mod tests {
         assert_eq!(listeners[0].proto, "TCP6");
     }
 
-    #[test]
-    fn parse_proc_stat_handles_parens_in_comm() {
-        // Process names can contain spaces and ')' — only the LAST ')' delimits comm.
-        // Field 22 (starttime) is at index 19 after the rparen.
-        // We construct a stat line with comm = "weird (name)" and starttime = 100.
-        let mut fields = vec![
-            "S".to_string(),
-            "1".to_string(), // state, ppid (idx 0,1)
-        ];
+    /// Build a synthetic /proc/<pid>/stat line with the given comm, state
+    /// and starttime (field 22, index 19 after comm).
+    fn stat_line(comm: &str, state: &str, starttime: &str) -> String {
+        let mut fields = vec![state.to_string(), "1".to_string()]; // state, ppid
         for i in 2..19 {
             fields.push(i.to_string());
         }
-        fields.push("100".to_string()); // starttime at index 19
+        fields.push(starttime.to_string()); // starttime at index 19
         for _ in 20..30 {
             fields.push("0".to_string());
         }
-        let content = format!("123 (weird (name)) {}", fields.join(" "));
-        // boot_secs = 1000, USER_HZ = 100 → start was at 100/100 = 1s after boot
-        // → secs_ago = 1000 - 1 = 999
-        let (cmd, start) = parse_proc_stat(&content, 1000);
-        assert_eq!(cmd, "weird (name)");
-        let elapsed = SystemTime::now()
-            .duration_since(start.unwrap())
-            .unwrap()
-            .as_secs();
+        format!("123 ({}) {}", comm, fields.join(" "))
+    }
+
+    #[test]
+    fn parse_proc_stat_handles_parens_in_comm() {
+        // Process names can contain spaces and ')' — only the LAST ')' delimits comm.
+        let content = stat_line("weird (name)", "S", "100");
+        let stat = parse_proc_stat(&content).unwrap();
+        assert_eq!(stat.comm, "weird (name)");
+        assert_eq!(stat.state, Some('S'));
+        assert_eq!(stat.starttime_ticks, Some(100));
+
+        // uptime = 1000s, USER_HZ = 100 → start was at 100/100 = 1s after
+        // boot → secs_ago = 1000 - 1 = 999
+        let start = start_time_from_ticks(100, 1000);
+        let elapsed = SystemTime::now().duration_since(start).unwrap().as_secs();
         assert!(
             (995..=1005).contains(&elapsed),
             "expected ~999s, got {}",
             elapsed
         );
+    }
+
+    #[test]
+    fn parse_proc_stat_extracts_zombie_state() {
+        let stat = parse_proc_stat(&stat_line("dead-server", "Z", "42")).unwrap();
+        assert_eq!(stat.state, Some('Z'));
+        assert_eq!(stat.starttime_ticks, Some(42));
+    }
+
+    #[test]
+    fn send_signal_rejects_non_positive_and_malformed_pids() {
+        // pid 0 / negatives would signal whole process groups.
+        for pid in ["0", "-1", "", "abc", "12a4"] {
+            let err = send_signal(pid, libc::SIGTERM).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "pid {:?}", pid);
+        }
     }
 
     #[test]
@@ -704,6 +847,7 @@ www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
             protocol: "TCP",
             memory_mb: 0.0,
             start_time: None,
+            starttime_ticks: None,
             cwd: None,
         };
         assert!(e.is_killable());
@@ -713,5 +857,18 @@ www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
         assert!(!e.is_killable());
         e.pid = "12a4".into();
         assert!(!e.is_killable());
+        // Aligned with send_signal: no pid 0, nothing beyond i32.
+        e.pid = "0".into();
+        assert!(!e.is_killable());
+        e.pid = "9999999999".into();
+        assert!(!e.is_killable());
+    }
+
+    #[test]
+    fn kill_refuses_unverifiable_identity() {
+        // A snapshot whose starttime couldn't be captured at scan time
+        // must fail closed rather than signal an unverified PID.
+        let err = kill_process_verified("1", None).unwrap_err();
+        assert!(err.to_string().contains("identity"), "got: {}", err);
     }
 }
