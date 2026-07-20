@@ -3,123 +3,180 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>reaper — a simple Linux TUI for listening ports</title>
-<meta name="description" content="reaper is a simple Linux terminal UI for listing and reaping listening ports.">
-<link rel="icon" href="favicon.ico">
-<meta property="og:title" content="reaper — a simple Linux TUI for listening ports">
-<meta property="og:description" content="See what's listening on which port, and reap it — a simple Linux TUI.">
+<title>reaper — a linux tui for listing and killing listening ports</title>
+<meta name="description" content="a linux tui for listing and killing listening ports. built in rust, mit-licensed.">
+<link rel="icon" href="assets/reaper-icon.svg">
+<meta property="og:title" content="reaper">
+<meta property="og:description" content="a linux tui for listing and killing listening ports">
 <meta property="og:image" content="https://reaper.aymenkrifa.com/assets/reaper-social-preview.png">
 <meta property="og:url" content="https://reaper.aymenkrifa.com/">
-<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,760&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
+  /* phosphor black is the void the terminal lives in — dark is always the
+     default, light is the exception. graphic chart §3. */
   :root{
-    /* daylight sky */
-    --sky:#F7F1E3; --panel:#FFFDF7; --deep:#171209;
-    --ink:#33291B; --body:#4C4030; --straw:#8C7A57;
-    --wheat:#E3A82B; --field:#3F7A49; --poppy:#D9553F;
-    --line:rgba(51,41,27,.24);
-    --disp:'Bricolage Grotesque',system-ui,sans-serif;
-    --sans:'Inter',system-ui,sans-serif;
+    --bg:#0C0F0D; --panel:#10140F; --ink:#EAE4D6;
+    --green:#3FDD78; --red:#FF5C57; --amber:#F2B94B; --ash:#7A857C;
+    --line:rgba(122,133,124,.42);
     --mono:'JetBrains Mono',ui-monospace,monospace;
+    --sans:'IBM Plex Sans',system-ui,sans-serif;
   }
-  @media (prefers-color-scheme: dark){
-    :root{
-      /* dusk sky — the crop colors don't change, only the sky does */
-      --sky:#211B12; --panel:#2A2216;
-      --ink:#EFE5CC; --body:#D9CCAA; --straw:#A79262;
-      --field:#5FA36B; --poppy:#E57A66;
-      --line:rgba(239,229,204,.22);
+  /* light surface — ink on paper; green and red deepen to hold contrast */
+  :root[data-theme=light]{
+    --bg:#F2EFE6; --panel:#FFFFFF; --ink:#141815;
+    --green:#149E52; --red:#DE3B36; --amber:#A9750E; --ash:#5E6860;
+    --line:rgba(94,104,96,.38);
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme=dark]){
+      --bg:#F2EFE6; --panel:#FFFFFF; --ink:#141815;
+      --green:#149E52; --red:#DE3B36; --amber:#A9750E; --ash:#5E6860;
+      --line:rgba(94,104,96,.38);
     }
   }
+
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--sky);color:var(--ink);font-family:var(--sans);
-       font-size:16px;line-height:1.7;padding:36px 24px 70px}
-  .page{max-width:720px;margin:0 auto}
+  body{background:var(--bg);color:var(--ink);font-family:var(--mono);
+       font-size:16px;line-height:1.7;padding:34px 20px 80px;
+       -webkit-font-smoothing:antialiased}
+  .page{max-width:760px;margin:0 auto}
 
-  .rulepair{border-top:2px solid var(--ink);opacity:.95;position:relative;margin-bottom:5px}
-  .rulepair::after{content:"";display:block;border-top:1px solid var(--line);margin-top:4px;opacity:.9}
-  .masthead{display:flex;justify-content:space-between;gap:12px;color:var(--straw);
-       font-family:var(--mono);font-size:12.5px;letter-spacing:.05em;padding:8px 2px 0}
+  /* ---- masthead ---- */
+  .masthead{display:flex;justify-content:space-between;align-items:center;gap:16px;
+       font-size:12.5px;letter-spacing:.04em;color:var(--ash);
+       border-bottom:1px solid var(--line);padding-bottom:9px}
+  .sky-toggle{font-family:var(--mono);font-size:12.5px;letter-spacing:.04em;
+       color:var(--ash);background:none;border:none;cursor:pointer;padding:0}
+  .sky-toggle:hover{color:var(--green)}
 
-  .hero{text-align:center;padding:52px 0 30px}
-  .hero img{width:104px;height:auto}
-  .hero h1{font-family:var(--disp);font-weight:760;
-       font-size:clamp(48px,9vw,76px);line-height:1;letter-spacing:-.02em;
-       margin-top:14px;color:var(--ink);display:inline-flex;align-items:baseline;gap:.14em}
-  .grain-dot{display:inline-block;width:.30em;height:.30em;background:var(--wheat);
-       border-radius:52% 48% 52% 48%/60% 60% 40% 40%;transform:rotate(32deg) translateY(-.04em);
-       animation:sway 3.4s ease-in-out infinite}
-  @keyframes sway{0%,100%{transform:rotate(26deg) translateY(-.04em)}50%{transform:rotate(38deg) translateY(-.10em)}}
-  @media (prefers-reduced-motion:reduce){.grain-dot{animation:none}}
-  .hero .sub{color:var(--straw);margin-top:10px;font-size:15.5px}
+  /* ---- hero ---- */
+  .hero{text-align:center;padding:58px 0 44px}
+  .hero img{width:min(330px,84%);height:auto}
+  .hero p{color:var(--ash);font-size:14.5px;margin-top:18px}
+  /* the lockup ships in two cuts; show the one that suits the sky */
+  .logo-light{display:none}
+  :root[data-theme=light] .logo-light{display:inline}
+  :root[data-theme=light] .logo-dark{display:none}
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme=dark]) .logo-light{display:inline}
+    :root:not([data-theme=dark]) .logo-dark{display:none}
+  }
 
-  h2{font-family:var(--sans);font-weight:700;font-size:13.5px;letter-spacing:.15em;
-     text-transform:uppercase;color:var(--ink);margin:44px 0 4px}
-  h2 .no{color:var(--wheat)}
-  h2+.rulepair{margin-bottom:16px}
-  p{max-width:70ch;color:var(--body)}
-  code{font-family:var(--mono);font-size:.85em;color:var(--ink)}
+  /* ---- panel grammar ----
+     every branded surface is a tui panel: thin ash border, title notched into
+     the top edge, key hints along the bottom. graphic chart §5. */
+  .panel{position:relative;border:1px solid var(--line);background:var(--panel);
+       margin-top:54px;padding:32px 24px 30px}
+  .panel > .title{position:absolute;top:0;left:18px;transform:translateY(-50%);
+       background:var(--bg);padding:0 10px;font-size:12.5px;letter-spacing:.06em;
+       color:var(--ash)}
+  .panel > .title b{color:var(--green);font-weight:700}
+  .panel > .hints{position:absolute;bottom:0;left:18px;transform:translateY(50%);
+       background:var(--bg);padding:0 10px;font-size:12px;color:var(--ash);
+       width:fit-content;max-width:calc(100% - 36px);white-space:nowrap;
+       overflow:hidden;text-overflow:ellipsis}
+  .panel > .hints k{color:var(--ink);font-weight:500}
+  .panel .note{font-family:var(--sans);font-size:14.5px;color:var(--ash);
+       margin-top:22px;line-height:1.65}
+  .panel .note code{font-family:var(--mono);font-size:.9em;color:var(--ink)}
 
-  /* terminal surfaces are always dusk — machines live under the night sky */
-  .term{background:var(--deep);color:#E8DFC8;border:1px solid var(--line);border-radius:10px;
-      padding:20px 24px;white-space:pre;overflow-x:auto;
-      font-family:var(--mono);font-size:14px;line-height:1.95}
-  .term .g{color:#7FB98A} .term .w{color:#E3A82B} .term .d{color:#9A8E74} .term .p{color:#E57A66}
+  /* ---- the tui render ---- */
+  .tui{font-size:14px;line-height:1.95;overflow-x:auto;white-space:pre}
+  .tui .hdr{color:var(--ash)}
+  .tui .sel{color:var(--green);font-weight:500}
+  .tui .state{color:var(--green)}
+  .tui .confirm{color:var(--amber)}
+  .tui .confirm kbd{font:inherit;color:var(--red);font-weight:700}
+  .cursor{display:inline-block;width:.55em;height:1.05em;background:var(--green);
+       vertical-align:-.18em;animation:blink 1.15s steps(1,end) infinite}
+  @keyframes blink{50%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
 
-  .note{font-size:13.5px;color:var(--straw);margin-top:10px}
-  .note code{color:var(--field);font-size:1em}
+  /* ---- install ---- */
+  .cmd{font-size:14px;line-height:2;overflow-x:auto;white-space:pre}
+  .cmd .comment{color:var(--ash)}
+  .cmd .prompt{color:var(--green);user-select:none}
 
-  .links{text-align:center;margin:44px 0 0}
-  .links a{display:inline-block;margin:.3rem .35rem;padding:.5rem 1.15rem;
-      border:1px solid var(--line);border-radius:8px;font-size:14.5px;
-      text-decoration:none;color:var(--ink);transition:border-color .15s}
-  .links a:hover{border-color:var(--wheat)}
+  /* ---- links ---- */
+  .links{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:58px}
+  .links a{border:1px solid var(--line);color:var(--ink);text-decoration:none;
+       padding:9px 20px;font-size:13.5px;letter-spacing:.03em}
+  .links a:hover{border-color:var(--green);color:var(--green)}
 
-  footer{text-align:center;color:var(--straw);font-size:13px;margin-top:56px;font-family:var(--mono)}
+  footer{text-align:center;color:var(--ash);font-size:12.5px;margin-top:46px}
 </style>
+<script>
+  // apply a pinned sky before first paint so there's no flash.
+  (function(){
+    var t = localStorage.getItem('reaper-theme');
+    if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+  })();
+</script>
 </head>
 <body>
 <div class="page">
 
-  <div class="rulepair"></div>
-  <div class="masthead"><span>REAPER · DOCS</span><span>LINUX · MIT</span></div>
-
-  <div class="hero">
-    <img src="assets/reaper-mark.svg" alt="reaper wheat mark — one grain detached" width="104">
-    <h1>reaper<span class="grain-dot" aria-hidden="true"></span></h1>
-    <div class="sub">a simple Linux TUI for listing and reaping listening ports</div>
+  <div class="masthead">
+    <span>reaper · docs</span>
+    <span>linux · mit</span>
+    <button class="sky-toggle" id="sky-toggle" aria-label="toggle color scheme"></button>
   </div>
 
-  <h2><span class="no">01</span> · the tui</h2>
-  <div class="rulepair"></div>
-  <div class="term"><span class="g">~$</span> reaper
-<span class="d">4 listening</span>
+  <div class="hero">
+    <img class="logo-dark" src="assets/reaper-logo-dark.svg" alt="reaper" width="406" height="105">
+    <img class="logo-light" src="assets/reaper-logo-light.svg" alt="reaper" width="406" height="105">
+    <p>a linux tui for listing &amp; killing listening ports</p>
+  </div>
 
-  PID    COMMAND   PORT     AGE
-<span class="w">▸ 48213  node      :3000    3d</span>     <span class="p">reap? [y/n]</span> y
-  512    postgres  :5432    12d
-  9021   python    :8000    4h
+  <div class="panel">
+    <div class="title"><b>01</b> · the tui</div>
+    <div class="tui"><span class="hdr">  PID     COMMAND   PORT    STATE</span>
+<span class="sel">▸ 48213   node      :3000   LISTEN </span><span class="cursor"></span>
+  512     postgres  :5432   <span class="state">LISTEN</span>
+  9021    python    :8000   <span class="state">LISTEN</span>
 
-<span class="g">✓ :3000 reaped</span> <span class="d">— 3 still listening</span></div>
-  <p class="note">Search with <code>/</code>, sort with <code>s</code> or <code>1–7</code>, reap with <code>Enter</code> — always with confirmation.</p>
+<span class="confirm">  kill node (48213)? <kbd>[y/n]</kbd></span></div>
+    <p class="note">three listening, one about to not be. search with <code>/</code>,
+    sort with <code>s</code>, kill with <code>⏎</code> — always behind a confirm.</p>
+    <div class="hints"><k>[↑↓]</k> navigate &nbsp; <k>[/]</k> search &nbsp; <k>[⏎]</k> kill &nbsp; <k>[q]</k> quit</div>
+  </div>
 
-  <h2><span class="no">02</span> · install</h2>
-  <div class="rulepair"></div>
-  <div class="term"><span class="d"># with cargo (Rust 1.85+)</span>
-<span class="g">~$</span> cargo install --git https://github.com/aymenkrifa/reaper --locked</div>
-  <p class="note">Linux only — reaper reads <code>/proc</code> directly. Run with <code>sudo</code> to see and reap other users' processes.</p>
+  <div class="panel">
+    <div class="title"><b>02</b> · install</div>
+    <div class="cmd"><span class="comment"># with cargo (rust 1.85+)</span>
+<span class="prompt">~$</span> cargo install --git https://github.com/aymenkrifa/reaper --locked</div>
+    <p class="note">linux only — reaper reads <code>/proc</code> directly. run with
+    <code>sudo</code> to see and kill other users' processes.</p>
+    <div class="hints"><k>[rust]</k> built &nbsp; <k>[mit]</k> licensed</div>
+  </div>
 
   <div class="links">
     <a href="https://github.com/aymenkrifa/reaper">github</a>
     <a href="https://github.com/aymenkrifa/reaper/releases">releases</a>
-    <a href="brand.html">graphic chart</a>
   </div>
 
-  <footer><div class="rulepair" style="margin-bottom:10px"></div>
-  MIT · built in Rust · inspired by gruyère 🧀</footer>
+  <footer>mit · built in rust · inspired by gruyère 🧀</footer>
 </div>
+<script>
+  (function(){
+    var btn = document.getElementById('sky-toggle');
+    var mq = matchMedia('(prefers-color-scheme: dark)');
+    function effective(){
+      return document.documentElement.dataset.theme || (mq.matches ? 'dark' : 'light');
+    }
+    // no emoji — glyph coverage varies by system and falls back to tofu
+    function label(){ btn.textContent = effective() === 'dark' ? '→ light' : '→ dark'; }
+    btn.addEventListener('click', function(){
+      var next = effective() === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem('reaper-theme', next);
+      label();
+    });
+    mq.addEventListener('change', label);
+    label();
+  })();
+</script>
 </body>
 </html>
