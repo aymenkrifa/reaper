@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reaper — a Linux TUI for listing and killing listening ports</title>
+  <meta name="description" content="Reaper is a fast Linux terminal UI for seeing what's listening on which port — and killing it safely.">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #2d333b;
+      --text: #e6edf3;
+      --dim: #8b949e;
+      --accent: #1abc9c;
+      --port: #f1c40f;
+      --pid: #3498db;
+      --danger: #e74c3c;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+      line-height: 1.6;
+      display: flex;
+      min-height: 100vh;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+    main { max-width: 720px; width: 100%; }
+    header { text-align: center; margin: 3rem 0 2rem; }
+    h1 { font-size: 2.6rem; letter-spacing: -1px; }
+    h1 .skull { margin-right: .4rem; }
+    h1 .name { color: var(--accent); }
+    .tagline { color: var(--dim); margin-top: .5rem; font-size: 1.05rem; }
+    .terminal {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin: 2rem 0;
+      overflow: hidden;
+      box-shadow: 0 8px 30px rgba(0,0,0,.4);
+    }
+    .terminal-bar {
+      display: flex; gap: .45rem; padding: .6rem .8rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .terminal-bar span { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+    .terminal-bar .r { background: #ff5f57; } .terminal-bar .y { background: #febc2e; } .terminal-bar .g { background: #28c840; }
+    .terminal pre { padding: 1.1rem 1.2rem; overflow-x: auto; font-size: .88rem; }
+    .terminal .hdr { color: var(--dim); }
+    .terminal .port { color: var(--port); }
+    .terminal .pid { color: var(--pid); }
+    .terminal .accent { color: var(--accent); }
+    .terminal .sel { background: #143c37; }
+    .terminal .danger { color: var(--danger); font-weight: bold; }
+    h2 { font-size: 1.1rem; color: var(--accent); margin: 2.2rem 0 .8rem; }
+    .install {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: .9rem 1.1rem;
+      overflow-x: auto;
+      font-size: .88rem;
+      white-space: pre;
+    }
+    .install .c { color: var(--dim); }
+    p.note { color: var(--dim); font-size: .85rem; margin-top: .6rem; }
+    a { color: var(--accent); }
+    .links { text-align: center; margin: 2.5rem 0 1rem; }
+    .links a {
+      display: inline-block; margin: 0 .6rem; padding: .55rem 1.2rem;
+      border: 1px solid var(--border); border-radius: 8px;
+      text-decoration: none; color: var(--text); transition: border-color .15s;
+    }
+    .links a:hover { border-color: var(--accent); }
+    footer { color: var(--dim); font-size: .8rem; margin-top: auto; padding-top: 3rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1><span class="skull">💀</span><span class="name">reaper</span></h1>
+      <p class="tagline">A simple Linux TUI for listing and killing listening ports.</p>
+    </header>
+
+    <div class="terminal" aria-hidden="true">
+      <div class="terminal-bar"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+      <pre>
+<span class="accent">💀 Reaper</span> <span class="hdr">• 3 processes</span>
+
+<span class="hdr">PORT     USER     MEM      UPTIME   PROTO   PID     COMMAND</span>
+<span class="sel">▶ <span class="port">:8000</span>   aymen    52.1MB   2h       TCP     <span class="pid">41337</span>   python3 manage.py runserver</span>
+  <span class="port">:5432</span>   postgres 89.4MB   3d       TCP     <span class="pid">1204</span>    postgres -D /var/lib/postgresql
+  <span class="port">:443</span>    root     12.8MB   12d      TCP6    <span class="pid">802</span>     nginx -g daemon on;
+
+<span class="danger">Kill</span> <span class="port">:8000</span>  python3 manage.py runserver  <span class="hdr">pid</span> <span class="pid">41337</span> ?
+<span class="danger">[y/Enter]</span> kill        <span class="hdr">[n/Esc] cancel</span></pre>
+    </div>
+
+    <h2>## Install</h2>
+    <div class="install"><span class="c"># with cargo (Rust 1.85+)</span>
+cargo install --git https://github.com/aymenkrifa/reaper --locked</div>
+    <p class="note">Linux only — reaper reads <code>/proc</code> directly. Run with <code>sudo</code> to see and kill other users' processes.</p>
+
+    <div class="links">
+      <a href="https://github.com/aymenkrifa/reaper">GitHub</a>
+      <a href="https://github.com/aymenkrifa/reaper/releases">Releases</a>
+    </div>
+  </main>
+
+  <footer>MIT licensed · built in Rust · inspired by gruyère 🧀</footer>
+</body>
+</html>
