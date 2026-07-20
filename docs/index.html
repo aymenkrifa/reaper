@@ -38,23 +38,33 @@
   }
 
   *{box-sizing:border-box;margin:0;padding:0}
+  /* the page is sized to land in one frame — vertical rhythm is viewport
+     relative, so it breathes on a tall screen and tightens on a short one
+     rather than pushing the footer past the fold. */
   body{background:var(--bg);color:var(--ink);font-family:var(--mono);
-       font-size:16px;line-height:1.7;padding:34px 20px 80px;
+       font-size:16px;line-height:1.7;
+       padding:clamp(10px,2vh,28px) 20px clamp(12px,2vh,30px);
+       min-height:100vh;display:flex;align-items:center;
        -webkit-font-smoothing:antialiased}
-  .page{max-width:760px;margin:0 auto}
+  .page{max-width:760px;margin:0 auto;width:100%}
 
   /* ---- masthead ---- */
   .masthead{display:flex;justify-content:space-between;align-items:center;gap:16px;
        font-size:12.5px;letter-spacing:.04em;color:var(--ash);
        border-bottom:1px solid var(--line);padding-bottom:9px}
+  .mast-right{display:flex;align-items:center;gap:18px}
+  .masthead a{color:var(--ash);text-decoration:none}
+  .masthead a:hover{color:var(--green)}
   .sky-toggle{font-family:var(--mono);font-size:12.5px;letter-spacing:.04em;
        color:var(--ash);background:none;border:none;cursor:pointer;padding:0}
   .sky-toggle:hover{color:var(--green)}
 
   /* ---- hero ---- */
-  .hero{text-align:center;padding:58px 0 44px}
-  .hero img{width:min(330px,84%);height:auto}
-  .hero p{color:var(--ash);font-size:14.5px;margin-top:18px}
+  .hero{text-align:center;padding:clamp(10px,3vh,50px) 0 clamp(8px,2.2vh,38px)}
+  /* drive the lockup off height — the aspect is fixed, so this caps the
+     vertical budget directly instead of inferring it from the width */
+  .hero img{height:clamp(40px,9vh,80px);width:auto;max-width:84%}
+  .hero p{color:var(--ash);font-size:14.5px;margin-top:clamp(8px,1.6vh,16px)}
   /* the lockup ships in two cuts; show the one that suits the sky */
   .logo-light{display:none}
   :root[data-theme=light] .logo-light{display:inline}
@@ -68,7 +78,7 @@
      every branded surface is a tui panel: thin ash border, title notched into
      the top edge, key hints along the bottom. graphic chart §5. */
   .panel{position:relative;border:1px solid var(--line);background:var(--panel);
-       margin-top:54px;padding:32px 24px 30px}
+       margin-top:clamp(16px,3.6vh,50px);padding:clamp(15px,2.8vh,30px) 24px clamp(14px,2.6vh,28px)}
   .panel > .title{position:absolute;top:0;left:18px;transform:translateY(-50%);
        background:var(--bg);padding:0 10px;font-size:12.5px;letter-spacing:.06em;
        color:var(--ash)}
@@ -79,11 +89,11 @@
        overflow:hidden;text-overflow:ellipsis}
   .panel > .hints k{color:var(--ink);font-weight:500}
   .panel .note{font-family:var(--sans);font-size:14.5px;color:var(--ash);
-       margin-top:22px;line-height:1.65}
+       margin-top:clamp(10px,1.8vh,20px);line-height:1.6}
   .panel .note code{font-family:var(--mono);font-size:.9em;color:var(--ink)}
 
   /* ---- the tui render ---- */
-  .tui{font-size:14px;line-height:1.95;overflow-x:auto;white-space:pre}
+  .tui{font-size:14px;line-height:clamp(19px,2.5vh,27px);overflow-x:auto;white-space:pre}
   .tui .hdr{color:var(--ash)}
   .tui .sel{color:var(--green);font-weight:500}
   .tui .state{color:var(--green)}
@@ -95,26 +105,33 @@
   @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
 
   /* ---- install ---- */
-  .cmd-wrap{display:flex;align-items:flex-start;gap:14px}
-  .cmd{font-size:14px;line-height:2;overflow-x:auto;white-space:pre;flex:1;min-width:0}
+  .cmd-wrap{display:flex;align-items:stretch;gap:14px}
+  .cmd{font-size:14px;line-height:clamp(20px,2.6vh,28px);overflow-x:auto;white-space:pre;flex:1;min-width:0}
   .cmd .comment{color:var(--ash)}
   .cmd .prompt{color:var(--green);user-select:none}
   .copy{font-family:var(--mono);font-size:12.5px;color:var(--ash);background:none;
-       border:none;cursor:pointer;padding:0;margin-top:32px;flex:none;
+       border:none;cursor:pointer;padding:0;align-self:flex-end;flex:none;
        white-space:nowrap;-webkit-user-select:none;user-select:none}
   .copy:hover{color:var(--green)}
   .copy[data-state=done]{color:var(--green)}
   .copy[data-state=fail]{color:var(--red)}
 
-  /* ---- links ---- */
-  .links{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:58px}
-  .links a{border:1px solid var(--line);color:var(--ink);text-decoration:none;
-       padding:9px 20px;font-size:13.5px;letter-spacing:.03em}
-  .links a:hover{border-color:var(--green);color:var(--green)}
-
-  footer{text-align:center;color:var(--ash);font-size:12.5px;margin-top:46px}
+  footer{text-align:center;color:var(--ash);font-size:12.5px;margin-top:clamp(18px,4vh,54px)}
   footer a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
   footer a:hover{color:var(--green);border-bottom-color:var(--green)}
+
+  /* short windows: the vh floors above stop shrinking to keep type legible,
+     so step the type down a notch rather than let the footer slip past the
+     fold. only engages below a laptop-height viewport. */
+  @media (max-height:720px){
+    .hero img{height:clamp(34px,8vh,80px)}
+    .hero p{font-size:13.5px}
+    .panel{margin-top:13px;padding:13px 22px 12px}
+    .panel .note{font-size:13.5px;margin-top:9px}
+    .tui{font-size:13px;line-height:17px}
+    .cmd{font-size:13px;line-height:18px}
+    footer{margin-top:16px}
+  }
 </style>
 <script>
   // apply a pinned sky before first paint so there's no flash.
@@ -129,7 +146,10 @@
 
   <div class="masthead">
     <span>reaper · docs</span>
-    <button class="sky-toggle" id="sky-toggle" aria-label="toggle color scheme"></button>
+    <span class="mast-right">
+      <a href="https://github.com/aymenkrifa/reaper" target="_blank" rel="noopener noreferrer">github</a>
+      <button class="sky-toggle" id="sky-toggle" aria-label="toggle color scheme"></button>
+    </span>
   </div>
 
   <div class="hero">
@@ -162,12 +182,7 @@
     <code>sudo</code> to see and kill other users' processes.</p>
   </div>
 
-  <div class="links">
-    <a href="https://github.com/aymenkrifa/reaper">github</a>
-    <a href="https://github.com/aymenkrifa/reaper/releases">releases</a>
-  </div>
-
-  <footer>made by <a href="https://aymenkrifa.com">aymen krifa</a>, inspired by gruyère 🧀</footer>
+  <footer>made by <a href="https://aymenkrifa.com" target="_blank" rel="noopener noreferrer">aymen krifa</a>, inspired by <a href="https://github.com/savannahostrowski/gruyere" target="_blank" rel="noopener noreferrer">gruyère</a></footer>
 </div>
 <script>
   (function(){
