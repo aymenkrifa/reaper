@@ -172,6 +172,22 @@
     footer{margin-top:16px}
   }
 
+  /* very short desktop windows: a half-height browser still deserves the
+     whole page in one frame, and unlike a phone it is not being read at
+     arm's length, so one more step down is the right trade. */
+  @media (max-height:640px) and (min-width:561px){
+    .hero{padding:4px 0 5px}
+    .hero img{height:clamp(30px,6.2vh,80px)}
+    .hero p{font-size:12.5px;margin-top:6px}
+    .panel{margin-top:7px;padding:9px 20px 8px}
+    .panel .note{font-size:12.5px;margin-top:7px}
+    .tui{line-height:16px;padding:6px 12px}
+    .tui .band{margin-top:.5em;padding-top:.45em}
+    .tui .help{margin-top:.4em}
+    .cmd{line-height:16px}
+    footer{margin-top:7px}
+  }
+
   /* phones: readability beats the one-frame fit. let the page run as long as
      it needs and spend the space on type and breathing room — a short scroll
      reads better than a squeezed screen. */
