@@ -4,7 +4,8 @@
 #
 # Downloads the static musl binary for this machine from the latest GitHub
 # release, verifies it against the published sha256, and drops it in ~/.local/bin.
-# Override the destination with REAPER_BIN_DIR=/somewhere.
+# Override the destination with REAPER_BIN_DIR=/somewhere, or silence the
+# progress lines with REAPER_QUIET=1 (errors still print).
 set -eu
 
 REPO="aymenkrifa/reaper"
@@ -21,7 +22,8 @@ else
   BIN_DIR="$HOME/.local/bin"
 fi
 
-say() { printf '%s\n' "reaper: $*"; }
+# REAPER_QUIET=1 silences the progress lines; errors still go to stderr.
+say() { [ -n "${REAPER_QUIET:-}" ] || printf '%s\n' "reaper: $*"; }
 die() { printf '%s\n' "reaper: $*" >&2; exit 1; }
 
 [ "$(uname -s)" = "Linux" ] || die "reaper is Linux-only (it reads /proc)."
