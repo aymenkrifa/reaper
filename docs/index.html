@@ -435,7 +435,7 @@
 
     var cap = document.getElementById('keycap');
     var seamEl = document.getElementById('tui-seam');
-    var i = 0, timer = null, capTimer = null, fadeTimer = null, running = false, first = true;
+    var i = 0, timer = null, capTimer = null, fadeTimer = null, running = false, first = true, inView = false;
     // FADE must match the .tui / .tui-seam opacity transitions in the css
     var FADE = 500;  // crossfade duration on each side of the loop seam
     var HOLD = 1400; // how long the caption holds at full opacity, to be read
@@ -491,28 +491,38 @@
     function stop(){ running = false; clearTimeout(timer); clearTimeout(capTimer);
                      clearTimeout(fadeTimer); el.style.opacity = '1';
                      if (seamEl) seamEl.style.opacity = '0'; }
+    function reset(){ i = 0; first = true; } // rewind to the boot frame
 
     // honour reduced-motion: show the outcome, never loop
     var rm = matchMedia('(prefers-reduced-motion: reduce)');
     function apply(){
       stop();
-      if (rm.matches) { i = 0; flashKey(null); el.classList.remove('booting'); el.innerHTML = screen({sel:0, mode:'list'}); }
-      else { i = 0; start(); }
+      reset();
+      if (rm.matches) { flashKey(null); el.classList.remove('booting'); el.innerHTML = screen({sel:0, mode:'list'}); return; }
+      // hold on the boot frame; the observer runs it from the top when the
+      // panel scrolls into view (or start now if we can't observe)
+      paint(STEPS[0]);
+      if (!('IntersectionObserver' in window)) { inView = true; start(); }
     }
     rm.addEventListener('change', apply);
 
     // don't burn cycles animating a panel nobody is looking at
+    // start the run from the top each time the panel scrolls into view; pause
+    // it when it leaves, and rewind so the next arrival opens on the boot frame
     if ('IntersectionObserver' in window) {
       new IntersectionObserver(function(es){
         es.forEach(function(e){
           if (rm.matches) return;
-          if (e.isIntersecting) start(); else stop();
+          inView = e.isIntersecting;
+          if (inView) { if (!running) { reset(); start(); } }
+          else stop();
         });
-      }, {threshold: 0.15}).observe(el);
+      }, {threshold: 0.3}).observe(el);
     }
     document.addEventListener('visibilitychange', function(){
       if (rm.matches) return;
-      if (document.hidden) stop(); else start();
+      if (document.hidden) stop();
+      else if (inView && !running) start(); // resume where it paused, no rewind
     });
 
     apply();
