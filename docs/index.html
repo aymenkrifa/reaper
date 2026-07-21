@@ -169,6 +169,9 @@
   @media (prefers-reduced-motion:reduce){.cursor{animation:none}.tui,.tui-seam{transition:none}}
 
   /* ---- install ---- */
+  /* the command lives under the feature list now, not in its own panel;
+     centre it the way .why is centred */
+  .install{width:fit-content;max-width:100%;margin:clamp(11px,2.2vh,22px) auto 0}
   .cmd-wrap{display:flex;align-items:stretch;gap:14px}
   .cmd{font-size:14px;line-height:clamp(20px,2.6vh,28px);overflow-x:auto;white-space:pre;flex:1;min-width:0}
   .cmd .comment{color:var(--ash)}
@@ -232,6 +235,7 @@
     .tui{font-size:13.5px;line-height:24px}
     /* wrap the command rather than clipping it mid-url */
     .cmd{font-size:13.5px;line-height:24px;white-space:pre-wrap;overflow-wrap:anywhere}
+    .install{width:100%}
     .cmd-wrap{flex-direction:column;gap:10px}
     .copy{align-self:flex-start;font-size:13px}
     footer{margin-top:34px;font-size:12.5px;line-height:1.7}
@@ -267,8 +271,15 @@
     <span>kill from the row, <b>safely</b></span>
   </div>
 
+  <div class="install">
+    <div class="cmd-wrap">
+      <div class="cmd"><span class="prompt">~$</span> <span id="install-cmd">curl -LsSf https://reaper.aymenkrifa.com/install.sh | sh</span></div>
+      <button class="copy" id="copy-btn" aria-label="copy install command">[copy]</button>
+    </div>
+  </div>
+
   <div class="panel">
-    <div class="title"><b>01</b> · the tui</div>
+    <div class="title">the tui</div>
     <div class="keycap" id="keycap" aria-hidden="true"></div>
     <!-- static first frame; the script below replays the kill flow over it,
          so the panel still reads correctly with javascript disabled -->
@@ -286,14 +297,6 @@
     <p class="note">select a port, press <code>⏎</code>, confirm — that's the whole
     loop. search with <code>/</code>, sort with <code>s</code>. nothing dies
     without a yes.</p>
-  </div>
-
-  <div class="panel">
-    <div class="title"><b>02</b> · install</div>
-    <div class="cmd-wrap">
-      <div class="cmd"><span class="prompt">~$</span> <span id="install-cmd">curl -LsSf https://reaper.aymenkrifa.com/install.sh | sh</span></div>
-      <button class="copy" id="copy-btn" aria-label="copy install command">[copy]</button>
-    </div>
   </div>
 
   <footer>made by <a href="https://aymenkrifa.com" target="_blank" rel="noopener noreferrer">aymen krifa</a>, inspired by <a href="https://github.com/savannahostrowski/gruyere" target="_blank" rel="noopener noreferrer">gruyère</a> and built with rust.</footer>
