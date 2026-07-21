@@ -23,14 +23,20 @@ I made this small tool because I can never remember the exact `lsof` command and
 
 Reaper is Linux-only (it reads `/proc` directly). To see and kill processes owned by other users, run it with `sudo`.
 
-**From Releases** (no Rust needed — static binary, works on any distro):
+**Quick install** (no Rust needed — grabs the right static musl binary and drops it in `~/.local/bin`):
+
+```bash
+curl -LsSf https://reaper.aymenkrifa.com/install.sh | sh
+```
+
+**Manual download** — every release has `x86_64` and `aarch64` static musl tarballs with matching `.sha256` checksums, on the [Releases page](https://github.com/aymenkrifa/reaper/releases):
 
 ```bash
 curl -fsSL https://github.com/aymenkrifa/reaper/releases/latest/download/reaper-x86_64-unknown-linux-musl.tar.gz | tar -xz
 sudo install reaper /usr/local/bin/
 ```
 
-For ARM machines, replace `x86_64` with `aarch64`. All builds and checksums are on the [Releases page](https://github.com/aymenkrifa/reaper/releases).
+For ARM machines, replace `x86_64` with `aarch64`.
 
 **With Cargo** (requires Rust 1.85+):
 
