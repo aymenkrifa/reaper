@@ -87,6 +87,16 @@
     :root:not([data-theme=dark]) .logo-dark{display:none}
   }
 
+  /* ---- why ----
+     the differentiators, terse enough to scan without stealing the demo's
+     thunder: green bullets, ash text, the payoff word of each line in ink */
+  .why{display:flex;flex-direction:column;gap:clamp(3px,.7vh,8px);
+       width:fit-content;max-width:100%;margin:clamp(7px,1.6vh,16px) auto 0;
+       font-size:13.5px;line-height:1.45;color:var(--ash)}
+  .why span{position:relative;padding-left:1.15em}
+  .why span::before{content:'·';position:absolute;left:0;color:var(--green);font-weight:700}
+  .why b{color:var(--ink);font-weight:500}
+
   /* ---- panel grammar ----
      every branded surface is a tui panel: thin ash border with the title
      notched into the top edge. graphic chart §5. the key hints live inside
@@ -180,6 +190,7 @@
   @media (max-height:720px) and (min-width:561px){
     .hero img{height:clamp(34px,8vh,80px)}
     .hero p{font-size:13.5px}
+    .why{font-size:12.5px;margin-top:9px}
     .panel{margin-top:13px;padding:13px 22px 12px}
     .panel .note{font-size:13.5px;margin-top:9px}
     .tui{font-size:13px;line-height:20px}
@@ -194,6 +205,7 @@
     .hero{padding:4px 0 5px}
     .hero img{height:clamp(30px,6.2vh,80px)}
     .hero p{font-size:12.5px;margin-top:6px}
+    .why{font-size:12px;margin-top:6px;gap:2px}
     .panel{margin-top:7px;padding:9px 20px 8px}
     .panel .note{font-size:12.5px;margin-top:7px}
     .tui{line-height:16px;padding:6px 12px}
@@ -212,6 +224,7 @@
     .hero{padding:30px 0 26px}
     .hero img{height:58px}
     .hero p{font-size:14px;margin-top:14px;line-height:1.6}
+    .why{font-size:13px;margin-top:16px}
     .panel{margin-top:42px;padding:22px 18px 20px}
     .panel > .title{left:12px}
     .panel > .title{font-size:12px}
@@ -246,6 +259,12 @@
     <img class="logo-dark" src="assets/reaper-logo-dark.svg" alt="reaper" width="406" height="105">
     <img class="logo-light" src="assets/reaper-logo-light.svg" alt="reaper" width="406" height="105">
     <p>a linux tui for listing &amp; killing listening ports</p>
+  </div>
+
+  <div class="why">
+    <span>no lsof, no netstat — just <b>/proc</b></span>
+    <span>every listener in <b>one sortable table</b></span>
+    <span>kill from the row, <b>safely</b></span>
   </div>
 
   <div class="panel">
