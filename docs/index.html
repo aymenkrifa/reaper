@@ -517,7 +517,7 @@
           if (inView) { if (!running) { reset(); start(); } }
           else stop();
         });
-      }, {threshold: 0.3}).observe(el);
+      }, {threshold: 0.5}).observe(el);
     }
     document.addEventListener('visibilitychange', function(){
       if (rm.matches) return;
