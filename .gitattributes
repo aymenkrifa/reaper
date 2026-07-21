@@ -1,0 +1,4 @@
+# These HTML files are documentation / graphics, not application source.
+# Keep them out of GitHub's language statistics (see github-linguist).
+docs/**                           linguist-documentation
+assets/reaper-graphic-chart.html  linguist-documentation
