@@ -169,19 +169,22 @@
   @media (prefers-reduced-motion:reduce){.cursor{animation:none}.tui,.tui-seam{transition:none}}
 
   /* ---- install ---- */
-  /* the command lives under the feature list now, not in its own panel;
-     centre it the way .why is centred */
-  .install{width:fit-content;max-width:100%;margin:clamp(11px,2.2vh,22px) auto 0}
   .cmd-wrap{display:flex;align-items:stretch;gap:14px}
   .cmd{font-size:14px;line-height:clamp(20px,2.6vh,28px);overflow-x:auto;white-space:pre;flex:1;min-width:0}
   .cmd .comment{color:var(--ash)}
   .cmd .prompt{color:var(--green);user-select:none}
+  /* a real button, not selectable text: a bordered chip with a proper tap
+     target, no long-press callout or text selection, no tap-highlight flash */
   .copy{font-family:var(--mono);font-size:12.5px;color:var(--ash);background:none;
-       border:none;cursor:pointer;padding:0;align-self:flex-end;flex:none;
-       white-space:nowrap;-webkit-user-select:none;user-select:none}
-  .copy:hover{color:var(--green)}
-  .copy[data-state=done]{color:var(--green)}
-  .copy[data-state=fail]{color:var(--red)}
+       border:1px solid var(--line);border-radius:3px;cursor:pointer;
+       padding:2px 9px;align-self:center;flex:none;white-space:nowrap;
+       -webkit-user-select:none;-moz-user-select:none;user-select:none;
+       -webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
+       touch-action:manipulation}
+  .copy:hover{color:var(--green);border-color:var(--green)}
+  .copy:active{transform:translateY(1px)}
+  .copy[data-state=done]{color:var(--green);border-color:var(--green)}
+  .copy[data-state=fail]{color:var(--red);border-color:var(--red)}
 
   footer{text-align:center;color:var(--ash);font-size:12.5px;margin-top:clamp(16px,3.6vh,54px)}
   footer a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
@@ -235,9 +238,8 @@
     .tui{font-size:13.5px;line-height:24px}
     /* wrap the command rather than clipping it mid-url */
     .cmd{font-size:13.5px;line-height:24px;white-space:pre-wrap;overflow-wrap:anywhere}
-    .install{width:100%}
     .cmd-wrap{flex-direction:column;gap:10px}
-    .copy{align-self:flex-start;font-size:13px}
+    .copy{align-self:flex-start;font-size:13px;padding:5px 12px}
     footer{margin-top:34px;font-size:12.5px;line-height:1.7}
   }
 
@@ -255,7 +257,7 @@
 <div class="page">
 
   <div class="masthead">
-    <span><a href="https://github.com/aymenkrifa/reaper" target="_blank" rel="noopener noreferrer">github</a> · <a href="https://github.com/aymenkrifa/reaper/releases" target="_blank" rel="noopener noreferrer" id="version">v0.3.0</a></span>
+    <span><a href="https://github.com/aymenkrifa/reaper" target="_blank" rel="noopener noreferrer">github</a> · <a href="https://github.com/aymenkrifa/reaper/releases" target="_blank" rel="noopener noreferrer" id="version">v0.3.1</a></span>
     <button class="sky-toggle" id="sky-toggle" aria-label="toggle color scheme"></button>
   </div>
 
@@ -271,15 +273,8 @@
     <span>kill from the row, <b>safely</b></span>
   </div>
 
-  <div class="install">
-    <div class="cmd-wrap">
-      <div class="cmd"><span class="prompt">~$</span> <span id="install-cmd">curl -LsSf https://reaper.aymenkrifa.com/install.sh | sh</span></div>
-      <button class="copy" id="copy-btn" aria-label="copy install command">[copy]</button>
-    </div>
-  </div>
-
   <div class="panel">
-    <div class="title">the tui</div>
+    <div class="title"><b>01</b> · the tui</div>
     <div class="keycap" id="keycap" aria-hidden="true"></div>
     <!-- static first frame; the script below replays the kill flow over it,
          so the panel still reads correctly with javascript disabled -->
@@ -297,6 +292,14 @@
     <p class="note">select a port, press <code>⏎</code>, confirm — that's the whole
     loop. search with <code>/</code>, sort with <code>s</code>. nothing dies
     without a yes.</p>
+  </div>
+
+  <div class="panel">
+    <div class="title"><b>02</b> · install</div>
+    <div class="cmd-wrap">
+      <div class="cmd"><span class="prompt">~$</span> <span id="install-cmd">curl -LsSf https://reaper.aymenkrifa.com/install.sh | sh</span></div>
+      <button class="copy" id="copy-btn" aria-label="copy install command">[copy]</button>
+    </div>
   </div>
 
   <footer>made by <a href="https://aymenkrifa.com" target="_blank" rel="noopener noreferrer">aymen krifa</a>, inspired by <a href="https://github.com/savannahostrowski/gruyere" target="_blank" rel="noopener noreferrer">gruyère</a> and built with rust.</footer>
@@ -488,15 +491,16 @@
   })();
 
   // the version in the markup is a fallback; refresh it from the releases
-  // api so cutting a tag updates the site without a redeploy. cached for a
-  // day, since the unauthenticated api allows only 60 calls an hour per ip.
+  // api so cutting a tag updates the site without a redeploy. cached for an
+  // hour — well under the api's 60-per-hour limit, but short enough that a
+  // fresh release shows on its own without clearing the browser cache.
   (function(){
     var el = document.getElementById('version');
     var KEY = 'reaper-latest-release';
-    var DAY = 86400000;
+    var TTL = 3600000; // 1 hour
     try {
       var hit = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (hit && Date.now() - hit.at < DAY && hit.tag) { el.textContent = hit.tag; return; }
+      if (hit && Date.now() - hit.at < TTL && hit.tag) { el.textContent = hit.tag; return; }
     } catch (e) { /* unparseable cache — fall through and refetch */ }
 
     fetch('https://api.github.com/repos/aymenkrifa/reaper/releases/latest')
