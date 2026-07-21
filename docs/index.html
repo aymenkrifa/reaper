@@ -131,6 +131,9 @@
        background:var(--bg);border:1px solid var(--line);border-radius:2px;
        padding:clamp(9px,1.25vh,13px) clamp(12px,1.6vw,18px)}
   .tui .hdr,.tui .dim{color:var(--ash)}
+  /* the process-count line and help line are pure chrome — held well back so
+     the table, the selected row and the kill flow keep the eye */
+  .tui .count{opacity:.5}
   /* green owns selection and success, amber the confirm prompt, red the
      kill verb — the semantic roles from the chart, §3. */
   .tui .sel{color:var(--green);font-weight:500}
@@ -139,7 +142,7 @@
      the table; the rule stands in for that distance in a short panel */
   .tui .band{display:block;margin-top:.7em;padding-top:.65em;
        border-top:1px solid var(--line)}
-  .tui .help{display:block;margin-top:.55em;color:var(--ash);opacity:.85}
+  .tui .help{display:block;margin-top:.55em;color:var(--ash);opacity:.5}
   .tui .port{color:var(--ink)}
   .tui .confirm{color:var(--amber)}
   .tui .confirm b{color:var(--red);font-weight:700}
@@ -244,7 +247,7 @@
     <div class="keycap" id="keycap" aria-hidden="true"></div>
     <!-- static first frame; the script below replays the kill flow over it,
          so the panel still reads correctly with javascript disabled -->
-    <div class="tui" id="tui"><span class="tbl"><span class="dim">3/23 processes (20 restricted hidden — press 'a')</span>
+    <div class="tui" id="tui"><span class="tbl"><span class="dim count">3/23 processes (20 restricted hidden — press 'a')</span>
 <span class="hdr">  PORT ↓   USER      MEM       UPTIME    PROTO    PID      COMMAND</span>
 <span class="sel">▶ :3000    aymen     52.1MB    2h        TCP      48213    node</span>
   <span class="port">:5432</span>    <span class="dim">postgres  89.4MB    3d        TCP</span>      1204     postgres
@@ -339,7 +342,7 @@
       var count = st.killed ? '2/22' : '3/23';
       var sel = st.killed ? 0 : st.sel;
 
-      var table = ['<span class="dim">' + count + ' processes (20 restricted hidden — press \'a\')</span>',
+      var table = ['<span class="dim count">' + count + ' processes (20 restricted hidden — press \'a\')</span>',
                    '<span class="hdr">  PORT ↓   USER      MEM       UPTIME    PROTO    PID      COMMAND</span>'];
       live.forEach(function(r,i){ table.push(row(r, i === sel)); });
 
