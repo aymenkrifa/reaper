@@ -163,6 +163,10 @@
   .tui .confirm{color:var(--amber)}
   .tui .confirm b{color:var(--red);font-weight:700}
   .tui .ok{color:var(--green);font-weight:500}
+  .tui .prompt{color:var(--green)}
+  /* the boot frame types 'reaper' into an empty terminal before it opens;
+     hide the detail-band rule while booting so the empty screen reads clean */
+  .tui.booting .band{border-color:transparent}
   .cursor{display:inline-block;width:.55em;height:1.05em;background:var(--green);
        vertical-align:-.18em;animation:blink 1.15s steps(1,end) infinite}
   @keyframes blink{50%{opacity:0}}
@@ -274,7 +278,15 @@
   </div>
 
   <div class="panel">
-    <div class="title"><b>01</b> · the tui</div>
+    <div class="title"><b>01</b> · install</div>
+    <div class="cmd-wrap">
+      <div class="cmd"><span class="prompt">~$</span> <span id="install-cmd">curl -LsSf https://reaper.aymenkrifa.com/install.sh | sh</span></div>
+      <button class="copy" id="copy-btn" aria-label="copy install command">[copy]</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="title"><b>02</b> · the tui</div>
     <div class="keycap" id="keycap" aria-hidden="true"></div>
     <!-- static first frame; the script below replays the kill flow over it,
          so the panel still reads correctly with javascript disabled -->
@@ -292,14 +304,6 @@
     <p class="note">select a port, press <code>⏎</code>, confirm — that's the whole
     loop. search with <code>/</code>, sort with <code>s</code>. nothing dies
     without a yes.</p>
-  </div>
-
-  <div class="panel">
-    <div class="title"><b>02</b> · install</div>
-    <div class="cmd-wrap">
-      <div class="cmd"><span class="prompt">~$</span> <span id="install-cmd">curl -LsSf https://reaper.aymenkrifa.com/install.sh | sh</span></div>
-      <button class="copy" id="copy-btn" aria-label="copy install command">[copy]</button>
-    </div>
   </div>
 
   <footer>made by <a href="https://aymenkrifa.com" target="_blank" rel="noopener noreferrer">aymen krifa</a>, inspired by <a href="https://github.com/savannahostrowski/gruyere" target="_blank" rel="noopener noreferrer">gruyère</a> and built with rust.</footer>
@@ -402,9 +406,27 @@
              '<span class="help">' + HELP + '</span>';
     }
 
-    // press: the key that causes this frame, shown on the panel edge
+    // the boot frame: an empty shell prompt with 'reaper' being typed, padded
+    // to the tui's height so the panel doesn't jump when the app opens
+    function launchScreen(typed){
+      var lines = ['<span class="prompt">~$</span> ' + esc(typed) + '<span class="cursor"></span>'];
+      while (lines.length < 5) lines.push(' ');
+      return '<span class="tbl">' + lines.join('\n') + '</span>' +
+             '<span class="band"> \n \n </span>' +
+             '<span class="help"> </span>';
+    }
+
+    // press: the key that causes this frame, shown on the panel edge. the run
+    // opens with an empty terminal, types 'reaper', then ⏎ launches the tui.
     var STEPS = [
-      {state:{sel:0, mode:'list'},               hold:2400},
+      {launch:'',       hold:650},
+      {launch:'r',      hold:90},
+      {launch:'re',     hold:90},
+      {launch:'rea',    hold:90},
+      {launch:'reap',   hold:90},
+      {launch:'reape',  hold:90},
+      {launch:'reaper', hold:1000},
+      {state:{sel:0, mode:'list'},               hold:2400, press:'[⏎]'},
       {state:{sel:1, mode:'list'},               hold:1500, press:'[↓]'},
       {state:{sel:2, mode:'list'},               hold:1800, press:'[↓]'},
       {state:{sel:2, mode:'confirm'},            hold:2800, press:'[⏎]'},
@@ -432,7 +454,13 @@
 
     function paint(step){
       flashKey(step.press);
-      el.innerHTML = screen(step.state);
+      if (step.launch !== undefined) {
+        el.classList.add('booting');
+        el.innerHTML = launchScreen(step.launch);
+      } else {
+        el.classList.remove('booting');
+        el.innerHTML = screen(step.state);
+      }
     }
 
     function tick(){
@@ -468,7 +496,7 @@
     var rm = matchMedia('(prefers-reduced-motion: reduce)');
     function apply(){
       stop();
-      if (rm.matches) { i = 0; flashKey(null); el.innerHTML = screen({sel:0, mode:'list'}); }
+      if (rm.matches) { i = 0; flashKey(null); el.classList.remove('booting'); el.innerHTML = screen({sel:0, mode:'list'}); }
       else { i = 0; start(); }
     }
     rm.addEventListener('change', apply);
