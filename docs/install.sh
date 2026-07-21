@@ -9,7 +9,17 @@ set -eu
 
 REPO="aymenkrifa/reaper"
 BASE="https://github.com/$REPO/releases/latest/download"
-BIN_DIR="${REAPER_BIN_DIR:-$HOME/.local/bin}"
+
+# Where to put the binary: an explicit override wins; root gets a system dir
+# that's already on PATH (so 'reaper' just works, no profile edits); everyone
+# else gets a no-sudo user dir.
+if [ -n "${REAPER_BIN_DIR:-}" ]; then
+  BIN_DIR="$REAPER_BIN_DIR"
+elif [ "$(id -u)" = 0 ]; then
+  BIN_DIR="/usr/local/bin"
+else
+  BIN_DIR="$HOME/.local/bin"
+fi
 
 say() { printf '%s\n' "reaper: $*"; }
 die() { printf '%s\n' "reaper: $*" >&2; exit 1; }
@@ -53,7 +63,12 @@ install -m 755 "$TMP/reaper" "$BIN_DIR/reaper"
 say "installed → $BIN_DIR/reaper"
 
 case ":$PATH:" in
-  *":$BIN_DIR:"*) ;;
-  *) say "add $BIN_DIR to your PATH to run reaper from anywhere." ;;
+  *":$BIN_DIR:"*)
+    say "done — run 'reaper' (or 'sudo reaper' to include other users' ports)."
+    ;;
+  *)
+    say "$BIN_DIR isn't on your PATH yet."
+    say "this session:  export PATH=\"$BIN_DIR:\$PATH\""
+    say "to keep it, append that line to ~/.bashrc (bash) or ~/.zshrc (zsh), then run 'reaper'."
+    ;;
 esac
-say "done — run 'reaper' (or 'sudo reaper' to include other users' ports)."
