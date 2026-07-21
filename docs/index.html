@@ -129,7 +129,13 @@
   /* ---- the tui render ---- */
   .tui{font-size:14px;line-height:clamp(22px,3vh,31px);overflow-x:auto;white-space:pre;
        background:var(--bg);border:1px solid var(--line);border-radius:2px;
-       padding:clamp(9px,1.25vh,13px) clamp(12px,1.6vw,18px)}
+       padding:clamp(9px,1.25vh,13px) clamp(12px,1.6vw,18px);transition:opacity .5s ease}
+  /* wrapper so the loop caption can sit centred over the screen without
+     being wiped when the tui's innerHTML is rebuilt each frame */
+  .tui-stage{position:relative}
+  .tui-seam{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+       font-size:13px;letter-spacing:.14em;color:var(--green);
+       opacity:0;pointer-events:none;transition:opacity .5s ease}
   .tui .hdr,.tui .dim{color:var(--ash)}
   /* the process-count line and help line are pure chrome — held well back so
      the table, the selected row and the kill flow keep the eye */
@@ -150,7 +156,7 @@
   .cursor{display:inline-block;width:.55em;height:1.05em;background:var(--green);
        vertical-align:-.18em;animation:blink 1.15s steps(1,end) infinite}
   @keyframes blink{50%{opacity:0}}
-  @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
+  @media (prefers-reduced-motion:reduce){.cursor{animation:none}.tui,.tui-seam{transition:none}}
 
   /* ---- install ---- */
   .cmd-wrap{display:flex;align-items:stretch;gap:14px}
@@ -247,6 +253,7 @@
     <div class="keycap" id="keycap" aria-hidden="true"></div>
     <!-- static first frame; the script below replays the kill flow over it,
          so the panel still reads correctly with javascript disabled -->
+    <div class="tui-stage">
     <div class="tui" id="tui"><span class="tbl"><span class="dim count">3/23 processes (20 restricted hidden — press 'a')</span>
 <span class="hdr">  PORT ↓   USER      MEM       UPTIME    PROTO    PID      COMMAND</span>
 <span class="sel">▶ :3000    aymen     52.1MB    2h        TCP      48213    node</span>
@@ -255,6 +262,8 @@
 <span class="band"><span class="dim">▌ node
 ↳ ~/projects/api</span>
  </span><span class="help">↑/↓: Navigate • ⏎: Kill • /: Search • s/1-7: Sort • r: Refresh • q/Esc: Quit</span></div>
+    <div class="tui-seam" id="tui-seam" aria-hidden="true">as easy as that</div>
+    </div>
     <p class="note">select a port, press <code>⏎</code>, confirm — that's the whole
     loop. search with <code>/</code>, sort with <code>s</code>. nothing dies
     without a yes.</p>
@@ -381,7 +390,11 @@
     ];
 
     var cap = document.getElementById('keycap');
-    var i = 0, timer = null, capTimer = null, running = false;
+    var seamEl = document.getElementById('tui-seam');
+    var i = 0, timer = null, capTimer = null, fadeTimer = null, running = false, first = true;
+    // FADE must match the .tui / .tui-seam opacity transitions in the css
+    var FADE = 500;  // crossfade duration on each side of the loop seam
+    var HOLD = 1400; // how long the caption holds at full opacity, to be read
 
     function flashKey(k){
       if (!cap) return;
@@ -395,16 +408,39 @@
       capTimer = setTimeout(function(){ cap.classList.remove('hit'); }, 1150);
     }
 
-    function tick(){
-      var step = STEPS[i];
+    function paint(step){
       flashKey(step.press);
       el.innerHTML = screen(step.state);
-      var hold = step.hold;
+    }
+
+    function tick(){
+      var step = STEPS[i];
+      // the loop seam — the killed frame back to the fresh list — would be a
+      // hard cut that resurrects the port. cross-fade through a caption instead
+      // so the reset reads as a deliberate replay, not a glitch. capture `step`
+      // — `i` advances just below, so the deferred swap can't read it back off
+      // the array.
+      var wrap = (i === 0 && !first);
+      first = false;
+      if (wrap) {
+        el.style.opacity = '0';                     // fade the killed frame out
+        if (seamEl) seamEl.style.opacity = '1';     // as the caption fades in
+        fadeTimer = setTimeout(function(){
+          paint(step);                              // rebuild frame 0, unseen
+          el.style.opacity = '1';                   // fade it back in
+          if (seamEl) seamEl.style.opacity = '0';   // as the caption fades out
+        }, FADE + HOLD);
+      } else {
+        paint(step);
+      }
+      var hold = step.hold + (wrap ? FADE + HOLD : 0);
       i = (i + 1) % STEPS.length;
       timer = setTimeout(tick, hold);
     }
     function start(){ if (!running){ running = true; tick(); } }
-    function stop(){ running = false; clearTimeout(timer); clearTimeout(capTimer); }
+    function stop(){ running = false; clearTimeout(timer); clearTimeout(capTimer);
+                     clearTimeout(fadeTimer); el.style.opacity = '1';
+                     if (seamEl) seamEl.style.opacity = '0'; }
 
     // honour reduced-motion: show the outcome, never loop
     var rm = matchMedia('(prefers-reduced-motion: reduce)');
