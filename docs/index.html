@@ -175,7 +175,6 @@
   /* ---- install ---- */
   .cmd-wrap{display:flex;align-items:stretch;gap:14px}
   .cmd{font-size:14px;line-height:clamp(20px,2.6vh,28px);overflow-x:auto;white-space:pre;flex:1;min-width:0}
-  .cmd .comment{color:var(--ash)}
   .cmd .prompt{color:var(--green);user-select:none}
   /* a real button, not selectable text: a bordered chip with a proper tap
      target, no long-press callout or text selection, no tap-highlight flash */
@@ -506,18 +505,23 @@
     }
     rm.addEventListener('change', apply);
 
-    // don't burn cycles animating a panel nobody is looking at
-    // start the run from the top each time the panel scrolls into view; pause
-    // it when it leaves, and rewind so the next arrival opens on the boot frame
+    // play from the top once the panel is at least half on screen; pause when
+    // it partially leaves, and only rewind to the boot frame once it is fully
+    // off-screen — so the rewind snap is never visible, on the way in or out
     if ('IntersectionObserver' in window) {
       new IntersectionObserver(function(es){
         es.forEach(function(e){
           if (rm.matches) return;
-          inView = e.isIntersecting;
-          if (inView) { if (!running) { reset(); start(); } }
-          else stop();
+          if (e.intersectionRatio >= 0.5) {
+            inView = true;
+            if (!running && !document.hidden) { reset(); start(); }
+          } else if (!e.isIntersecting) {
+            inView = false;
+            stop(); reset(); paint(STEPS[0]);
+          }
+          // partially visible (0–0.5): leave it as-is, no visible snap
         });
-      }, {threshold: 0.5}).observe(el);
+      }, {threshold: [0, 0.5]}).observe(el);
     }
     document.addEventListener('visibilitychange', function(){
       if (rm.matches) return;
