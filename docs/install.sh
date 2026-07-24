@@ -41,6 +41,29 @@ probe_version() {
   setsid "$1" --version </dev/null 2>/dev/null | awk 'NR==1 && $1=="reaper" {print $2}' || true
 }
 
+# Closing guidance — shared by the early "up to date" exit and the full
+# install path. Warns when this reaper isn't the one PATH resolves to.
+closing() {
+  line ""
+  case ":$PATH:" in
+    *":$BIN_DIR:"*)
+      # A different reaper earlier on PATH would silently keep winning.
+      shadow="$(command -v reaper 2>/dev/null || true)"
+      if [ -n "$shadow" ] && [ "$shadow" != "$BIN_DIR/reaper" ]; then
+        warn "another reaper at ${b}$shadow${rst} comes first on your PATH and will shadow this one."
+      fi
+      line "  ${b}reaper${rst} is ready — run ${b}reaper${rst} to list listening ports."
+      line "  ${dim}tip: 'sudo reaper' includes other users' processes.${rst}"
+      ;;
+    *)
+      warn "${b}$BIN_DIR${rst} is not on your PATH yet."
+      line "     this session:  ${b}export PATH=\"$BIN_DIR:\$PATH\"${rst}"
+      line "     to keep it:     append that line to ~/.bashrc or ~/.zshrc"
+      line "  then run ${b}reaper${rst} to list listening ports (${b}sudo reaper${rst} for all users)."
+      ;;
+  esac
+}
+
 main() {
   REPO="aymenkrifa/reaper"
   BASE="https://github.com/$REPO/releases/latest/download"
@@ -96,6 +119,28 @@ main() {
     old_ver="$(probe_version "$BIN_DIR/reaper")"
   fi
 
+  # When the installed binary can say what version it is, one redirect
+  # (/releases/latest → /releases/tag/vX, no download) tells us the latest
+  # release tag — matching versions stop here instead of downloading a
+  # tarball just to hash-compare it. Binaries older than 0.3.2 can't
+  # report a version, and any hiccup in the redirect leaves latest_url
+  # unmatched: both fall through to the full download-and-verify path.
+  if [ -n "$old_ver" ]; then
+    latest_url="$(curl --proto '=https' --tlsv1.2 -fsSLI -o /dev/null -w '%{url_effective}' \
+      "https://github.com/$REPO/releases/latest" 2>/dev/null || true)"
+    case "$latest_url" in
+      */releases/tag/*)
+        latest="${latest_url##*/tag/}"
+        latest="${latest#v}"
+        if [ "$latest" = "$old_ver" ]; then
+          ok "up to date" "already on the latest release (v$old_ver)"
+          closing
+          return 0
+        fi
+        ;;
+    esac
+  fi
+
   fetch "$BASE/$TARBALL" "$TMP/$TARBALL" || die "could not download $TARBALL — is there a release for your platform?"
   fetch "$BASE/$SUM" "$TMP/$SUM"          || die "could not download the checksum for $TARBALL."
   ok "downloaded" "$TARBALL"
@@ -123,24 +168,7 @@ main() {
     ok "updated" "$BIN_DIR/reaper"
   fi
 
-  line ""
-  case ":$PATH:" in
-    *":$BIN_DIR:"*)
-      # A different reaper earlier on PATH would silently keep winning.
-      shadow="$(command -v reaper 2>/dev/null || true)"
-      if [ -n "$shadow" ] && [ "$shadow" != "$BIN_DIR/reaper" ]; then
-        warn "another reaper at ${b}$shadow${rst} comes first on your PATH and will shadow this one."
-      fi
-      line "  ${b}reaper${rst} is ready — run ${b}reaper${rst} to list listening ports."
-      line "  ${dim}tip: 'sudo reaper' includes other users' processes.${rst}"
-      ;;
-    *)
-      warn "${b}$BIN_DIR${rst} is not on your PATH yet."
-      line "     this session:  ${b}export PATH=\"$BIN_DIR:\$PATH\"${rst}"
-      line "     to keep it:     append that line to ~/.bashrc or ~/.zshrc"
-      line "  then run ${b}reaper${rst} to list listening ports (${b}sudo reaper${rst} for all users)."
-      ;;
-  esac
+  closing
 }
 
 main "$@"
