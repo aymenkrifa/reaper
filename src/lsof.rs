@@ -39,7 +39,7 @@ impl LsofEntry {
     pub fn get_memory_display(&self) -> String {
         if self.memory_mb < 1.0 {
             format!("{:.1}KB", self.memory_mb * 1024.0)
-        } else if self.memory_mb > 1024.0 {
+        } else if self.memory_mb >= 1024.0 {
             format!("{:.1}GB", self.memory_mb / 1024.0)
         } else {
             format!("{:.1}MB", self.memory_mb)
@@ -386,9 +386,16 @@ struct PidMeta {
 /// possibly recycled for an unrelated process) evicts the entry and
 /// re-resolves, so a recycled PID can never inherit the old socket's
 /// attribution.
+/// `unresolved` is the negative cache: inodes a full walk failed to map
+/// to any PID — typically other users' sockets, whose /proc/<pid>/fd we
+/// can't read without sudo. Without it, every scan would re-walk all of
+/// /proc for sockets that can never resolve. Cached misses are retried
+/// for free whenever a genuinely new inode forces a walk anyway, so a
+/// transient miss (a socket caught mid-handoff) heals itself.
 #[derive(Debug, Default)]
 pub struct Scanner {
     inode_to_pid: HashMap<u64, (String, Option<u64>)>,
+    unresolved: HashSet<u64>,
 }
 
 impl Scanner {
@@ -400,6 +407,7 @@ impl Scanner {
 
         let needed: HashSet<u64> = listeners.iter().map(|l| l.inode).collect();
         self.inode_to_pid.retain(|inode, _| needed.contains(inode));
+        self.unresolved.retain(|inode| needed.contains(inode));
 
         // One stat read per distinct PID per scan — the identity check
         // here, comm/start-time for the entries below.
@@ -419,18 +427,33 @@ impl Scanner {
             matches!((live, *ticks), (Some(l), Some(t)) if l == t)
         });
 
+        // Only inodes never seen before (not resolved, not a cached miss)
+        // trigger the expensive /proc walk. When one does, cached misses
+        // ride along as retry candidates — the walk is happening anyway.
         let unknown: HashSet<u64> = needed
             .iter()
             .copied()
-            .filter(|inode| !self.inode_to_pid.contains_key(inode))
+            .filter(|inode| {
+                !self.inode_to_pid.contains_key(inode) && !self.unresolved.contains(inode)
+            })
             .collect();
         if !unknown.is_empty() {
-            for (inode, pid) in build_inode_to_pid(&unknown) {
-                let stat = stats
-                    .entry(pid.clone())
-                    .or_insert_with(|| read_proc_stat(&pid));
-                let ticks = stat.as_ref().and_then(|s| s.starttime_ticks);
-                self.inode_to_pid.insert(inode, (pid, ticks));
+            let candidates: HashSet<u64> = unknown.union(&self.unresolved).copied().collect();
+            let resolved = build_inode_to_pid(&candidates);
+            for inode in &candidates {
+                match resolved.get(inode) {
+                    Some(pid) => {
+                        let stat = stats
+                            .entry(pid.clone())
+                            .or_insert_with(|| read_proc_stat(pid));
+                        let ticks = stat.as_ref().and_then(|s| s.starttime_ticks);
+                        self.inode_to_pid.insert(*inode, (pid.clone(), ticks));
+                        self.unresolved.remove(inode);
+                    }
+                    None => {
+                        self.unresolved.insert(*inode);
+                    }
+                }
             }
         }
 
@@ -527,6 +550,62 @@ pub enum KillOutcome {
     StillAlive,
 }
 
+/// An open pidfd (Linux 5.3+): a handle to one specific process
+/// incarnation. Signals sent through it can never reach a recycled PID,
+/// and it polls readable the moment the process terminates.
+struct PidFd(libc::c_int);
+
+impl PidFd {
+    fn open(pid: i32) -> io::Result<PidFd> {
+        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+        if fd >= 0 {
+            Ok(PidFd(fd as libc::c_int))
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+
+    fn send_signal(&self, sig: libc::c_int) -> io::Result<()> {
+        let rc = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.0,
+                sig,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        if rc == 0 {
+            return Ok(());
+        }
+        let err = io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::ESRCH) {
+            // Process exited between open and signal — the goal state.
+            return Ok(());
+        }
+        Err(err)
+    }
+
+    /// Wait up to `budget` for termination. The kernel marks the fd
+    /// readable as soon as the process exits (even while still a zombie),
+    /// so unlike polling /proc there is no sleep granularity to tune.
+    fn wait_exit(&self, budget: Duration) -> bool {
+        let mut pfd = libc::pollfd {
+            fd: self.0,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let rc = unsafe { libc::poll(&mut pfd, 1, budget.as_millis() as libc::c_int) };
+        rc > 0
+    }
+}
+
+impl Drop for PidFd {
+    fn drop(&mut self) {
+        unsafe { libc::close(self.0) };
+    }
+}
+
 /// Send SIGTERM, wait up to ~200ms for the process to exit, escalate to
 /// SIGKILL if needed, then wait another ~200ms. Returns what actually
 /// happened — no lying about "successfully killed" when we only sent a
@@ -538,14 +617,38 @@ pub enum KillOutcome {
 /// refuse to signal anything we can't positively identify. A snapshot
 /// without ticks (a /proc read race at scan time) also refuses: failing
 /// closed beats signaling an unverified PID.
+///
+/// The pidfd is opened *before* the identity check: once the ticks match,
+/// the handle provably refers to that incarnation, so the signals below
+/// are recycling-proof — no window between verify and kill. Kernels
+/// without pidfd (pre-5.3) fall back to plain kill(2), where the ticks
+/// check still covers everything but a microsecond race.
 pub fn kill_process_verified(pid: &str, expected_ticks: Option<u64>) -> io::Result<KillOutcome> {
     let Some(expected) = expected_ticks else {
         return Err(io::Error::other(
             "could not verify process identity — refresh (r) and retry",
         ));
     };
+    let pid_num: i32 = match pid.parse() {
+        Ok(p) if p > 0 => p,
+        // pid 0 / negative values signal entire process groups — never that.
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid pid: {}", pid),
+            ));
+        }
+    };
+    let pidfd = match PidFd::open(pid_num) {
+        Ok(fd) => Some(fd),
+        Err(e) => match e.raw_os_error() {
+            // Already gone — the goal state, nothing to signal.
+            Some(libc::ESRCH) => return Ok(KillOutcome::Terminated),
+            Some(libc::ENOSYS) => None,
+            _ => return Err(e),
+        },
+    };
     match read_proc_stat(pid).and_then(|s| s.starttime_ticks) {
-        // Already gone — the goal state, nothing to signal.
         None => return Ok(KillOutcome::Terminated),
         Some(t) if t != expected => {
             return Err(io::Error::other(
@@ -554,15 +657,30 @@ pub fn kill_process_verified(pid: &str, expected_ticks: Option<u64>) -> io::Resu
         }
         Some(_) => {}
     }
-    send_signal(pid, libc::SIGTERM)?;
-    if wait_for_exit(pid, Duration::from_millis(200)) {
-        return Ok(KillOutcome::Terminated);
+    match pidfd {
+        Some(fd) => {
+            fd.send_signal(libc::SIGTERM)?;
+            if fd.wait_exit(Duration::from_millis(200)) {
+                return Ok(KillOutcome::Terminated);
+            }
+            fd.send_signal(libc::SIGKILL)?;
+            if fd.wait_exit(Duration::from_millis(200)) {
+                return Ok(KillOutcome::ForceKilled);
+            }
+            Ok(KillOutcome::StillAlive)
+        }
+        None => {
+            send_signal(pid, libc::SIGTERM)?;
+            if wait_for_exit(pid, Duration::from_millis(200)) {
+                return Ok(KillOutcome::Terminated);
+            }
+            send_signal(pid, libc::SIGKILL)?;
+            if wait_for_exit(pid, Duration::from_millis(200)) {
+                return Ok(KillOutcome::ForceKilled);
+            }
+            Ok(KillOutcome::StillAlive)
+        }
     }
-    send_signal(pid, libc::SIGKILL)?;
-    if wait_for_exit(pid, Duration::from_millis(200)) {
-        return Ok(KillOutcome::ForceKilled);
-    }
-    Ok(KillOutcome::StillAlive)
 }
 
 /// A process counts as exited once its /proc entry is gone or it has
@@ -870,5 +988,79 @@ www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
         // must fail closed rather than signal an unverified PID.
         let err = kill_process_verified("1", None).unwrap_err();
         assert!(err.to_string().contains("identity"), "got: {}", err);
+    }
+
+    /// Spawn a child and return (pid string, its real starttime ticks).
+    fn spawn_child(cmd: &mut std::process::Command) -> (std::process::Child, String, u64) {
+        let child = cmd.spawn().expect("spawn test child");
+        let pid = child.id().to_string();
+        let ticks = read_proc_stat(&pid)
+            .and_then(|s| s.starttime_ticks)
+            .expect("read child starttime");
+        (child, pid, ticks)
+    }
+
+    #[test]
+    fn kill_terminates_cooperative_process() {
+        let (mut child, pid, ticks) = spawn_child(
+            std::process::Command::new("sleep")
+                .arg("30")
+                .stdout(std::process::Stdio::null()),
+        );
+        let outcome = kill_process_verified(&pid, Some(ticks)).unwrap();
+        assert!(
+            matches!(outcome, KillOutcome::Terminated),
+            "got: {:?}",
+            outcome
+        );
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn kill_escalates_when_sigterm_ignored() {
+        use std::io::Read;
+        // The shell traps SIGTERM and reports readiness on stdout so the
+        // test never signals before the trap is installed.
+        let (mut child, pid, ticks) = spawn_child(
+            std::process::Command::new("sh")
+                .args(["-c", "trap '' TERM; echo ready; sleep 30"])
+                .stdout(std::process::Stdio::piped()),
+        );
+        let mut buf = [0u8; 6];
+        child.stdout.take().unwrap().read_exact(&mut buf).unwrap();
+        let outcome = kill_process_verified(&pid, Some(ticks)).unwrap();
+        assert!(
+            matches!(outcome, KillOutcome::ForceKilled),
+            "got: {:?}",
+            outcome
+        );
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn kill_refuses_mismatched_starttime() {
+        let (mut child, pid, ticks) = spawn_child(
+            std::process::Command::new("sleep")
+                .arg("30")
+                .stdout(std::process::Stdio::null()),
+        );
+        // Wrong ticks look exactly like a recycled PID — must refuse.
+        let err = kill_process_verified(&pid, Some(ticks + 1)).unwrap_err();
+        assert!(err.to_string().contains("recycled"), "got: {}", err);
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn kill_of_already_reaped_pid_is_terminated() {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id().to_string();
+        child.wait().unwrap();
+        let outcome = kill_process_verified(&pid, Some(1)).unwrap();
+        assert!(
+            matches!(outcome, KillOutcome::Terminated),
+            "got: {:?}",
+            outcome
+        );
     }
 }
