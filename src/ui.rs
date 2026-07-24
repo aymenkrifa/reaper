@@ -109,17 +109,29 @@ fn shorten_path(path: &str) -> String {
     path.to_string()
 }
 
-/// Truncate to `max` display chars, replacing the last char with `…` when
-/// truncation occurs. Without this signal, a clipped cell looks identical
-/// to one that fits and the user can't tell they're missing information.
+/// Truncate to `max` display columns, ending with `…` when truncation
+/// occurs. Without this signal, a clipped cell looks identical to one
+/// that fits and the user can't tell they're missing information.
+/// Measures display width, not chars — CJK and emoji glyphs occupy two
+/// terminal columns, so counting chars would overflow the column.
 fn truncate(s: &str, max: usize) -> String {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
     if max == 0 {
         return String::new();
     }
-    if s.chars().count() <= max {
+    if s.width() <= max {
         return s.to_string();
     }
-    let mut out: String = s.chars().take(max - 1).collect();
+    let mut out = String::new();
+    let mut width = 0;
+    for c in s.chars() {
+        let w = c.width().unwrap_or(0);
+        if width + w > max - 1 {
+            break;
+        }
+        out.push(c);
+        width += w;
+    }
     out.push('…');
     out
 }
@@ -550,5 +562,18 @@ mod tests {
         assert_eq!(truncate("exactly-10", 10), "exactly-10");
         assert_eq!(truncate("very-long-command", 10), "very-long…");
         assert_eq!(truncate("anything", 0), "");
+    }
+
+    #[test]
+    fn truncate_measures_display_width_not_chars() {
+        use unicode_width::UnicodeWidthStr;
+        // Each CJK glyph is 2 columns wide: 7 chars = 14 columns. A char
+        // count would keep 5 of them (11 columns) and overflow a 6-column
+        // cell; width-aware truncation keeps 2 (4 columns) plus the `…`.
+        let truncated = truncate("日本語のサーバー", 6);
+        assert_eq!(truncated, "日本…");
+        assert!(truncated.width() <= 6);
+        // A string that fits by width must not be touched.
+        assert_eq!(truncate("日本語", 6), "日本語");
     }
 }

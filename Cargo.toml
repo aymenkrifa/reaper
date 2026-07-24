@@ -6,6 +6,9 @@ repository = "https://github.com/aymenkrifa/reaper"
 authors = ["aymenkrifa <aymenkrifa@gmail.com>"]
 license = "MIT"
 edition = "2024"
+# let-chains (`if let … && let …`) stabilized in 1.88 — edition 2024 alone
+# only needs 1.85, so older toolchains fail without this hint.
+rust-version = "1.88"
 
 [dependencies]
 # crossterm comes via ratatui's re-export (`ratatui::crossterm`) so the
@@ -13,6 +16,9 @@ edition = "2024"
 ratatui = "0.30.2"
 color-eyre = "0.6.3"
 libc = "0.2"
+# already in the tree via ratatui — used to truncate table cells by
+# display width so wide (CJK/emoji) glyphs don't overflow their column.
+unicode-width = "0.2"
 
 [profile.release]
 lto = "thin"
