@@ -1144,6 +1144,7 @@ dependencies = [
  "color-eyre",
  "libc",
  "ratatui",
+ "unicode-width",
 ]
 
 [[package]]
