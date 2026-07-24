@@ -1,6 +1,6 @@
 [package]
 name = "reaper"
-version = "0.3.1"
+version = "0.3.2"
 description = "A simple Linux TUI for listing and killing listening ports"
 repository = "https://github.com/aymenkrifa/reaper"
 authors = ["aymenkrifa <aymenkrifa@gmail.com>"]
