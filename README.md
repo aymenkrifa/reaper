@@ -11,7 +11,7 @@ I made this small tool because I can never remember the exact `lsof` command and
 
 ## Features
 
-- **Every listener in one table** — port, user, memory, uptime, protocol, pid and command
+- **Every TCP listener in one table** — port, user, memory, uptime, protocol, pid and command
 - **Kill from the list** — select a row, press `⏎`, confirm. Nothing dies without a yes.
 - **Graceful by default** — sends `SIGTERM` first and only escalates to `SIGKILL` if the process ignores it, then reports which one actually did it
 - **Search and sort** — filter as you type, sort by any of the seven columns in either direction
@@ -38,7 +38,7 @@ sudo install reaper /usr/local/bin/
 
 For ARM machines, replace `x86_64` with `aarch64`.
 
-**With Cargo** (requires Rust 1.85+):
+**With Cargo** (requires Rust 1.88+):
 
 ```bash
 cargo install --git https://github.com/aymenkrifa/reaper --locked
@@ -51,6 +51,16 @@ git clone https://github.com/aymenkrifa/reaper.git
 cd reaper
 cargo install --path . --locked
 ```
+
+## Update
+
+```bash
+reaper update
+```
+
+This re-runs the installer against wherever reaper currently lives — it fetches the latest release, verifies it, and replaces the binary in place, telling you which version you came from and landed on. Re-running the install one-liner does exactly the same thing. Check what you're running with `reaper --version`.
+
+(If reaper is in a system directory like `/usr/local/bin`, use `sudo reaper update`.)
 
 ## Docs
 
