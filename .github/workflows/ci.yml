@@ -43,7 +43,7 @@ jobs:
           components: clippy
       # Restore the cargo cache before the build so it actually helps.
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - name: Run clippy action
         uses: clechasseur/rs-clippy-check@20f338ad6648dedb921c00b023bc30c971ab9ed7 # v6.0.7
   doc:
@@ -56,7 +56,7 @@ jobs:
         with:
           toolchain: nightly
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - name: Run cargo doc
         run: cargo doc --no-deps --all-features
         env:
@@ -71,7 +71,7 @@ jobs:
         with:
           toolchain: stable
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
