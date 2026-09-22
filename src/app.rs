@@ -114,6 +114,14 @@ impl App {
         }
     }
 
+    /// Start with a search already applied (`reaper <query>`). Like a
+    /// typed search, it's dropped on refresh if nothing matches, so a
+    /// query for a port that isn't listening falls back to the full list.
+    pub fn with_search(mut self, query: String) -> Self {
+        self.search_query = query;
+        self
+    }
+
     pub fn refresh_processes(&mut self) {
         self.processes = self.scanner.scan();
         self.apply_filter_and_sort();

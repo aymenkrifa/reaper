@@ -2,27 +2,13 @@
 compile_error!("reaper currently only supports Linux (it reads /proc directly)");
 
 mod app;
+mod cli;
 mod lsof;
 mod ui;
 
-const HELP: &str = "\
-reaper — a linux tui for listing and killing listening ports
+use std::process::ExitCode;
 
-Usage: reaper [OPTIONS | COMMAND]
-
-Commands:
-  update         Download and install the latest release
-
-Options:
-  -h, --help     Print this help
-  -V, --version  Print the version
-
-Keys (inside the TUI):
-  ↑/↓ navigate • ⏎ kill (with confirmation) • / search
-  s or 1-7 sort • a show restricted • r refresh • q/Esc quit
-
-Run with sudo to see and kill other users' listeners.
-Docs: https://reaper.aymenkrifa.com";
+use clap::Parser;
 
 /// Re-run the official installer, targeting the directory this binary
 /// runs from so the update lands in place regardless of where reaper was
@@ -52,30 +38,31 @@ fn self_update() -> color_eyre::Result<()> {
     Ok(())
 }
 
-fn main() -> color_eyre::Result<()> {
-    // The installer parses `reaper --version` to report updates, so this
-    // must work without a terminal and before any TUI setup.
-    if let Some(arg) = std::env::args().nth(1) {
-        match arg.as_str() {
-            "--version" | "-V" => {
-                println!("reaper {}", env!("CARGO_PKG_VERSION"));
-                return Ok(());
-            }
-            "--help" | "-h" => {
-                println!("{}", HELP);
-                return Ok(());
-            }
-            "update" => return self_update(),
-            other => {
-                eprintln!("unknown option: {other}\n\n{HELP}");
-                std::process::exit(2);
-            }
+fn main() -> color_eyre::Result<ExitCode> {
+    // Everything except the bare TUI must work without a terminal: the
+    // installer parses `reaper --version`, and `list`/`kill` are meant for
+    // scripts. So parse and dispatch before any TUI setup.
+    let cli = cli::Cli::parse();
+    match cli.command {
+        Some(cli::Command::List {
+            ports,
+            user,
+            all,
+            json,
+        }) => return Ok(cli::list(&ports, user.as_deref(), all, json)),
+        Some(cli::Command::Kill { ports, yes }) => return Ok(cli::kill(&ports, yes)),
+        Some(cli::Command::Update) => {
+            self_update()?;
+            return Ok(ExitCode::SUCCESS);
         }
+        None => {}
     }
 
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let result = app::App::new().run(terminal);
+    let result = app::App::new()
+        .with_search(cli.query.unwrap_or_default())
+        .run(terminal);
     ratatui::restore();
-    result
+    result.map(|()| ExitCode::SUCCESS)
 }

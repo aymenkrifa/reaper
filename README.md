@@ -52,6 +52,19 @@ cd reaper
 cargo install --path . --locked
 ```
 
+## Usage
+
+```bash
+reaper                      # open the TUI
+reaper vite                 # open the TUI already filtered by "vite"
+reaper list                 # print listening ports and exit (alias: ls)
+reaper list -p 3000 --json  # one port, as JSON for scripts
+reaper kill 3000            # kill whatever holds :3000 (asks first)
+reaper kill 3000 5173 -y    # several ports, no prompt
+```
+
+`reaper kill` uses the same graceful path as the TUI (`SIGTERM`, then `SIGKILL` only if ignored) and exits non-zero if anything couldn't be killed. Run `reaper --help` for every option.
+
 ## Update
 
 ```bash
