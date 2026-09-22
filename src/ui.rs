@@ -136,6 +136,46 @@ fn truncate(s: &str, max: usize) -> String {
     out
 }
 
+/// Hard-wrap `s` into at most `max_lines` lines of `width` display
+/// columns each. Wraps at character boundaries rather than words:
+/// commands are long runs of flags and paths where word-wrapping wastes
+/// space, and a deterministic line count lets the caller size the panel
+/// exactly. If the text doesn't fit, the last line ends with `…`.
+fn wrap_hard(s: &str, width: usize, max_lines: usize) -> Vec<String> {
+    use unicode_width::UnicodeWidthChar;
+    if width == 0 || max_lines == 0 {
+        return Vec::new();
+    }
+    let mut lines = vec![String::new()];
+    let mut line_width = 0;
+    let mut chars = s.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        let w = c.width().unwrap_or(0);
+        if line_width + w > width {
+            if lines.len() == max_lines {
+                let last = lines.pop().unwrap_or_default();
+                lines.push(truncate(&format!("{last}…"), width));
+                return lines;
+            }
+            lines.push(String::new());
+            line_width = 0;
+        }
+        lines.last_mut().unwrap().push(c);
+        line_width += w;
+        chars.next();
+    }
+    lines
+}
+
+/// Upper bound on wrapped COMMAND lines in the detail panel, so a huge
+/// command line can't push the table off a small terminal.
+const DETAIL_MAX_COMMAND_LINES: usize = 3;
+
+/// Combined width of every table column except COMMAND, plus the
+/// spacing between all seven columns. Keep in sync with `widths` in
+/// `render`.
+const TABLE_FIXED_WIDTH: u16 = 7 + 14 + 8 + 8 + 7 + 7 + 6 * 2;
+
 impl App {
     pub(crate) fn render(&mut self, frame: &mut Frame) {
         let chunks = Layout::default()
@@ -184,19 +224,36 @@ impl App {
             return;
         }
 
+        let detail_lines = self.selected_detail_lines(chunks[1].width);
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(0),    // process table
-                Constraint::Length(2), // detail line for the selected row
-                Constraint::Length(4), // status + help
+                Constraint::Min(0),                            // process table
+                Constraint::Length(detail_lines.len() as u16), // selected row's full command + cwd
+                Constraint::Length(4),                         // status + help
             ])
             .split(chunks[1]);
+
+        let highlight_symbol = if self.mode == AppMode::Search {
+            "🔍 "
+        } else {
+            "▶ "
+        };
+
+        // COMMAND gets whatever the fixed columns and the highlight gutter
+        // leave over, so wide terminals show more of it.
+        let command_width = {
+            use unicode_width::UnicodeWidthStr;
+            main_chunks[0]
+                .width
+                .saturating_sub(TABLE_FIXED_WIDTH + highlight_symbol.width() as u16)
+                as usize
+        };
 
         let rows: Vec<Row> = self
             .filtered_processes
             .iter()
-            .map(|p| self.build_row(p))
+            .map(|p| self.build_row(p, command_width))
             .collect();
 
         let widths = [
@@ -206,14 +263,8 @@ impl App {
             Constraint::Length(8),  // UPTIME
             Constraint::Length(7),  // PROTO (room for "PROTO ↑" header — was 5)
             Constraint::Length(7),  // PID
-            Constraint::Length(50), // COMMAND (last column, truncates if longer)
+            Constraint::Fill(1),    // COMMAND (takes the rest, truncates if longer)
         ];
-
-        let highlight_symbol = if self.mode == AppMode::Search {
-            "🔍 "
-        } else {
-            "▶ "
-        };
 
         let table = Table::new(rows, widths)
             .header(self.build_header_row())
@@ -223,18 +274,19 @@ impl App {
 
         frame.render_stateful_widget(table, main_chunks[0], &mut self.table_state);
 
-        self.render_selected_detail(frame, main_chunks[1]);
+        frame.render_widget(Paragraph::new(detail_lines), main_chunks[1]);
 
         self.render_status_and_help(frame, main_chunks[2]);
     }
 
-    /// Two-line panel directly below the table that shows the unabridged
-    /// COMMAND and CWD for the currently-selected row. The table cells
-    /// themselves truncate with `…` to stay scannable; this panel is where
-    /// you read the full text.
-    fn render_selected_detail(&self, frame: &mut Frame, area: Rect) {
+    /// Panel directly below the table that shows the full COMMAND (wrapped
+    /// over up to `DETAIL_MAX_COMMAND_LINES` lines) and CWD for the
+    /// currently-selected row. The table cells themselves truncate with `…`
+    /// to stay scannable; this panel is where you read the full text.
+    /// Returned as lines so the caller can size the layout to fit.
+    fn selected_detail_lines(&self, width: u16) -> Vec<Line<'static>> {
         let Some(p) = self.filtered_processes.get(self.selected_index) else {
-            return;
+            return Vec::new();
         };
         let cwd_display = p
             .cwd
@@ -242,18 +294,31 @@ impl App {
             .map(shorten_path)
             .unwrap_or_else(|| "—".to_string());
 
-        let lines = vec![
-            Line::from(vec![
-                Span::styled("▌ ", Style::default().fg(Colors::ACCENT).bold()),
-                Span::styled(p.command.clone(), Style::default().fg(Colors::TEXT_PRIMARY)),
-            ]),
-            Line::from(vec![
-                Span::styled("↳ ", Style::default().fg(Colors::TEXT_TERTIARY)),
-                Span::styled(cwd_display, Style::default().fg(Colors::TEXT_SECONDARY)),
-            ]),
-        ];
-
-        frame.render_widget(Paragraph::new(lines), area);
+        // Both prefixes are 2 columns wide; continuation lines are indented
+        // by the same amount so wrapped text lines up under the first line.
+        let text_width = width.saturating_sub(2) as usize;
+        let command_style = Style::default().fg(Colors::TEXT_PRIMARY);
+        let mut lines: Vec<Line<'static>> =
+            wrap_hard(&p.command, text_width, DETAIL_MAX_COMMAND_LINES)
+                .into_iter()
+                .enumerate()
+                .map(|(i, chunk)| {
+                    let prefix = if i == 0 {
+                        Span::styled("▌ ", Style::default().fg(Colors::ACCENT).bold())
+                    } else {
+                        Span::raw("  ")
+                    };
+                    Line::from(vec![prefix, Span::styled(chunk, command_style)])
+                })
+                .collect();
+        lines.push(Line::from(vec![
+            Span::styled("↳ ", Style::default().fg(Colors::TEXT_TERTIARY)),
+            Span::styled(
+                truncate(&cwd_display, text_width),
+                Style::default().fg(Colors::TEXT_SECONDARY),
+            ),
+        ]));
+        lines
     }
 
     fn build_header_row(&self) -> Row<'static> {
@@ -281,7 +346,7 @@ impl App {
         .bottom_margin(1)
     }
 
-    fn build_row(&self, p: &LsofEntry) -> Row<'static> {
+    fn build_row(&self, p: &LsofEntry, command_width: usize) -> Row<'static> {
         let base = Style::default().fg(Colors::TEXT_PRIMARY);
         let dim = Style::default().fg(Colors::TEXT_TERTIARY);
         let sort_style = Style::default().fg(sort_color(&self.sort_by)).bold();
@@ -328,7 +393,7 @@ impl App {
             cell(uptime, SortBy::StartTime),
             cell(p.protocol.to_string(), SortBy::Protocol),
             cell(p.pid.clone(), SortBy::Pid),
-            cell(truncate(&p.command, 50), SortBy::Command),
+            cell(truncate(&p.command, command_width), SortBy::Command),
         ])
     }
 
@@ -562,6 +627,18 @@ mod tests {
         assert_eq!(truncate("exactly-10", 10), "exactly-10");
         assert_eq!(truncate("very-long-command", 10), "very-long…");
         assert_eq!(truncate("anything", 0), "");
+    }
+
+    #[test]
+    fn wrap_hard_splits_at_width_and_marks_overflow() {
+        assert_eq!(wrap_hard("abcdefgh", 3, 5), vec!["abc", "def", "gh"]);
+        assert_eq!(wrap_hard("abcdef", 3, 5), vec!["abc", "def"]);
+        assert_eq!(wrap_hard("short", 10, 3), vec!["short"]);
+        // Too long for the line budget: last line ends with `…`.
+        assert_eq!(wrap_hard("abcdefghij", 3, 2), vec!["abc", "de…"]);
+        assert!(wrap_hard("anything", 0, 3).is_empty());
+        // Double-width glyphs never straddle a line boundary.
+        assert_eq!(wrap_hard("日本語", 3, 5), vec!["日", "本", "語"]);
     }
 
     #[test]
