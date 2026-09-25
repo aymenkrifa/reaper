@@ -45,7 +45,7 @@ jobs:
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - name: Run clippy action
-        uses: clechasseur/rs-clippy-check@20f338ad6648dedb921c00b023bc30c971ab9ed7 # v6.0.7
+        uses: clechasseur/rs-clippy-check@d626afd6670c78ecef6c7872e1c9e1221065d5c5 # v6.1.0
   doc:
     name: doc
     runs-on: ubuntu-latest
